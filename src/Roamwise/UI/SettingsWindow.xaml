@@ -31,10 +31,10 @@
                 <TextBlock Text="Roamwise" Style="{StaticResource Rw.Subtitle}" Margin="10,0,0,0" VerticalAlignment="Center" />
             </StackPanel>
             <RadioButton x:Name="NavGeneral" Style="{StaticResource Rw.NavItem}" GroupName="Nav" Tag="&#xE713;" Content="General" IsChecked="True" Checked="Nav_Checked" />
-            <RadioButton x:Name="NavRoaming" Style="{StaticResource Rw.NavItem}" GroupName="Nav" Tag="&#xE701;" Content="When to switch" Checked="Nav_Checked" />
-            <RadioButton x:Name="NavRanking" Style="{StaticResource Rw.NavItem}" GroupName="Nav" Tag="&#xE9D2;" Content="How APs are ranked" Checked="Nav_Checked" />
+            <RadioButton x:Name="NavRoaming" Style="{StaticResource Rw.NavItem}" GroupName="Nav" Tag="&#xE701;" Content="Switching" Checked="Nav_Checked" />
+            <RadioButton x:Name="NavRanking" Style="{StaticResource Rw.NavItem}" GroupName="Nav" Tag="&#xE9D2;" Content="Ranking" Checked="Nav_Checked" />
             <RadioButton x:Name="NavNetworks" Style="{StaticResource Rw.NavItem}" GroupName="Nav" Tag="&#xE8FD;" Content="Networks" Checked="Nav_Checked" />
-            <RadioButton x:Name="NavNames" Style="{StaticResource Rw.NavItem}" GroupName="Nav" Tag="&#xE8EC;" Content="Access point names" Checked="Nav_Checked" />
+            <RadioButton x:Name="NavNames" Style="{StaticResource Rw.NavItem}" GroupName="Nav" Tag="&#xE8EC;" Content="Names" Checked="Nav_Checked" />
             <RadioButton x:Name="NavActivity" Style="{StaticResource Rw.NavItem}" GroupName="Nav" Tag="&#xE81C;" Content="Activity" Checked="Nav_Checked" />
             <RadioButton x:Name="NavAbout" Style="{StaticResource Rw.NavItem}" GroupName="Nav" Tag="&#xE946;" Content="About" Checked="Nav_Checked" />
         </StackPanel>
@@ -53,7 +53,12 @@
                                 <CheckBox Style="{StaticResource Rw.Toggle}" IsChecked="{Binding Enabled}" AutomationProperties.Name="Auto-roam" />
                             </ui:SettingRow>
                             <Border Style="{StaticResource Rw.Divider}" />
+                            <ui:SettingRow x:Name="PauseRow" Header="Pause for an hour" Description="Stay on the access point you're on during a call or a big download. Auto-roam comes back on by itself.">
+                                <Button x:Name="PauseButton" Style="{StaticResource Rw.Button}" Content="Pause" MinWidth="96" Click="Pause_Click" />
+                            </ui:SettingRow>
+                            <Border Style="{StaticResource Rw.Divider}" />
                             <ui:SettingRow Header="Start with Windows" Description="Runs quietly in the notification area after you sign in.">
+
                                 <CheckBox Style="{StaticResource Rw.Toggle}" IsChecked="{Binding StartWithWindows}" AutomationProperties.Name="Start with Windows" />
                             </ui:SettingRow>
                             <Border Style="{StaticResource Rw.Divider}" />
@@ -92,7 +97,7 @@
 
                 <!-- When to switch -->
                 <StackPanel x:Name="PageRoaming" Visibility="Collapsed">
-                    <TextBlock Text="When to switch" Style="{StaticResource Rw.PageTitle}" />
+                    <TextBlock Text="Switching" Style="{StaticResource Rw.PageTitle}" />
                     <Border Margin="0,16,0,0" Padding="16,12" CornerRadius="6" Background="{DynamicResource Rw.Surface}"
                             BorderBrush="{DynamicResource Rw.CardStroke}" BorderThickness="1">
                         <Grid>
@@ -172,13 +177,32 @@
                         </StackPanel>
                     </Border>
 
+                    <TextBlock Text="Don't interrupt" Style="{StaticResource Rw.GroupHeading}" />
+                    <Border Style="{StaticResource Rw.Card}">
+                        <StackPanel>
+                            <ui:SettingRow Header="Wait while I'm using the network"
+                                           Description="A switch drops the connection for a moment. Roamwise holds off while you're streaming, downloading or on a call, unless your signal is very weak.">
+                                <CheckBox Style="{StaticResource Rw.Toggle}" IsChecked="{Binding HoldOffWhenBusy}" AutomationProperties.Name="Wait while I'm using the network" />
+                            </ui:SettingRow>
+                            <Border Style="{StaticResource Rw.Divider}" Visibility="{Binding HoldOffWhenBusy, Converter={StaticResource Visible}}" />
+                            <ui:SettingRow Header="Busy means over" Description="Traffic through the Wi-Fi adapter since the last check. A video call uses about 2 Mbps."
+                                           Visibility="{Binding HoldOffWhenBusy, Converter={StaticResource Visible}}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource Rw.SliderValue}" Text="{Binding BusyMbps, StringFormat={}{0} Mbps}" />
+                                    <Slider Width="200" VerticalAlignment="Center" Minimum="1" Maximum="50" TickFrequency="1" IsSnapToTickEnabled="True"
+                                            Value="{Binding BusyMbps}" AutomationProperties.Name="Busy means over" />
+                                </StackPanel>
+                            </ui:SettingRow>
+                        </StackPanel>
+                    </Border>
+
                     <Button Style="{StaticResource Rw.Button}" Content="Restore default rules" HorizontalAlignment="Left" Margin="0,20,0,0"
                             Click="ResetRules_Click" />
                 </StackPanel>
 
                 <!-- How APs are ranked -->
                 <StackPanel x:Name="PageRanking" Visibility="Collapsed">
-                    <TextBlock Text="How access points are ranked" Style="{StaticResource Rw.PageTitle}" TextWrapping="Wrap" />
+                    <TextBlock Text="Ranking" Style="{StaticResource Rw.PageTitle}" />
                     <TextBlock Style="{StaticResource Rw.Body}" Foreground="{DynamicResource Rw.TextMuted}" Margin="0,12,0,0" MaxWidth="640" HorizontalAlignment="Left"
                                Text="Each access point gets a score that starts at its signal strength in dBm. Faster bands and wider channels add points, busy access points lose points. Bonuses fade out between −65 and −80 dBm, so a weak fast connection never beats a solid slower one." />
 
@@ -296,40 +320,73 @@
                 <StackPanel x:Name="PageNames" Visibility="Collapsed">
                     <TextBlock Text="Access point names" Style="{StaticResource Rw.PageTitle}" />
                     <TextBlock Style="{StaticResource Rw.Body}" Foreground="{DynamicResource Rw.TextMuted}" Margin="0,12,0,0" MaxWidth="640" HorizontalAlignment="Left"
-                               Text="Most access points don't broadcast their name. Roamwise shows a name when it can find one: yours first, then your UniFi controller's, then whatever the access point announces. Otherwise it shows the end of the device's MAC address." />
+                               Text="Most access points don't broadcast their name. Roamwise uses the names you give first, then the names from your controller or a list you import, then whatever the access point announces. Otherwise it shows the end of the device's MAC address." />
 
-                    <TextBlock Text="UniFi controller" Style="{StaticResource Rw.GroupHeading}" />
+                    <TextBlock Text="Look up names" Style="{StaticResource Rw.GroupHeading}" />
                     <Border Style="{StaticResource Rw.Card}">
                         <StackPanel>
-                            <ui:SettingRow Header="Controller address" Description="Your UniFi console or Network server, for example 192.168.1.1.">
-                                <Grid Width="260">
-                                    <TextBox x:Name="UnifiHostBox" MinHeight="32" VerticalContentAlignment="Center"
-                                             Text="{Binding UnifiHost, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="Controller address" />
-                                    <TextBlock x:Name="UnifiHostHint" Text="192.168.1.1" IsHitTestVisible="False" Style="{StaticResource Rw.Caption}"
-                                               FontSize="14" VerticalAlignment="Center" Margin="12,0,0,0" />
-                                </Grid>
+                            <ui:SettingRow x:Name="SourceRow" Header="Get names from">
+                                <ComboBox x:Name="SourceBox" Width="280" MinHeight="32" DisplayMemberPath="Title"
+                                          SelectionChanged="SourceBox_SelectionChanged" AutomationProperties.Name="Get names from" />
                             </ui:SettingRow>
-                            <Border Style="{StaticResource Rw.Divider}" />
-                            <ui:SettingRow Header="API key"
-                                           Description="In UniFi Network, open Settings, then Control Plane, then Integrations, and create an API key. Roamwise only reads device names, and keeps the key encrypted for your Windows account.">
-                                <Grid Width="260">
-                                    <PasswordBox x:Name="UnifiKeyBox" MinHeight="32" VerticalContentAlignment="Center" PasswordChanged="UnifiKeyBox_PasswordChanged"
-                                                 AutomationProperties.Name="API key" />
-                                    <TextBlock x:Name="UnifiKeyHint" IsHitTestVisible="False" Style="{StaticResource Rw.Caption}"
-                                               FontSize="14" VerticalAlignment="Center" Margin="12,0,0,0" />
+
+                            <StackPanel x:Name="AddressGroup">
+                                <Border Style="{StaticResource Rw.Divider}" />
+                                <ui:SettingRow x:Name="AddressRow">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Grid Width="280">
+                                            <TextBox x:Name="AddressBox" MinHeight="32" VerticalContentAlignment="Center" AutomationProperties.Name="Address" />
+                                            <TextBlock x:Name="AddressHint" IsHitTestVisible="False" Style="{StaticResource Rw.Caption}"
+                                                       FontSize="14" VerticalAlignment="Center" Margin="12,0,0,0" />
+                                        </Grid>
+                                        <Button x:Name="BrowseButton" Style="{StaticResource Rw.Button}" Content="Browse…" Margin="8,0,0,0" Click="Browse_Click" />
+                                    </StackPanel>
+                                </ui:SettingRow>
+                            </StackPanel>
+
+                            <StackPanel x:Name="UserGroup">
+                                <Border Style="{StaticResource Rw.Divider}" />
+                                <ui:SettingRow x:Name="UserRow">
+                                    <TextBox x:Name="UserBox" Width="280" MinHeight="32" VerticalContentAlignment="Center" AutomationProperties.Name="User" />
+                                </ui:SettingRow>
+                            </StackPanel>
+
+                            <StackPanel x:Name="SecretGroup">
+                                <Border Style="{StaticResource Rw.Divider}" />
+                                <ui:SettingRow x:Name="SecretRow" Description="Stored encrypted for your Windows account. Roamwise only reads device names.">
+                                    <Grid Width="280">
+                                        <PasswordBox x:Name="SecretBox" MinHeight="32" VerticalContentAlignment="Center" PasswordChanged="SecretBox_PasswordChanged"
+                                                     AutomationProperties.Name="Key" />
+                                        <TextBlock x:Name="SecretHint" IsHitTestVisible="False" Style="{StaticResource Rw.Caption}"
+                                                   FontSize="14" VerticalAlignment="Center" Margin="12,0,0,0" />
+                                    </Grid>
+                                </ui:SettingRow>
+                            </StackPanel>
+
+                            <StackPanel x:Name="ExtraGroup">
+                                <Border Style="{StaticResource Rw.Divider}" />
+                                <ui:SettingRow x:Name="ExtraRow">
+                                    <Grid Width="280">
+                                        <TextBox x:Name="ExtraBox" MinHeight="32" VerticalContentAlignment="Center" AutomationProperties.Name="Extra" />
+                                        <TextBlock x:Name="ExtraHint" IsHitTestVisible="False" Style="{StaticResource Rw.Caption}"
+                                                   FontSize="14" VerticalAlignment="Center" Margin="12,0,0,0" />
+                                    </Grid>
+                                </ui:SettingRow>
+                            </StackPanel>
+
+                            <StackPanel x:Name="SourceFooter">
+                                <Border Style="{StaticResource Rw.Divider}" />
+                                <Grid Margin="16,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="SourceStatus" Style="{StaticResource Rw.Caption}" FontSize="13" VerticalAlignment="Center" Margin="0,0,16,0" />
+                                    <Button x:Name="SourceForget" Grid.Column="1" Style="{StaticResource Rw.Button}" Content="Disconnect" Margin="0,0,8,0" Click="SourceForget_Click" />
+                                    <Button x:Name="SourceConnect" Grid.Column="2" Style="{StaticResource Rw.AccentButton}" Content="Connect" MinWidth="96" Click="SourceConnect_Click" />
                                 </Grid>
-                            </ui:SettingRow>
-                            <Border Style="{StaticResource Rw.Divider}" />
-                            <Grid Margin="16,12">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock x:Name="UnifiStatus" Style="{StaticResource Rw.Caption}" FontSize="13" VerticalAlignment="Center" Margin="0,0,16,0" />
-                                <Button x:Name="UnifiForget" Grid.Column="1" Style="{StaticResource Rw.Button}" Content="Disconnect" Margin="0,0,8,0" Click="UnifiForget_Click" />
-                                <Button x:Name="UnifiConnect" Grid.Column="2" Style="{StaticResource Rw.AccentButton}" Content="Connect" MinWidth="96" Click="UnifiConnect_Click" />
-                            </Grid>
+                            </StackPanel>
                         </StackPanel>
                     </Border>
 
@@ -416,6 +473,44 @@
                                 <Button Style="{StaticResource Rw.LinkButton}" Content="Open data folder" Margin="24,0,0,0" Click="OpenData_Click" />
                             </StackPanel>
                         </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Updates" Style="{StaticResource Rw.GroupHeading}" />
+                    <Border Style="{StaticResource Rw.Card}">
+                        <StackPanel>
+                            <Grid Margin="16,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="UpdateTitle" Style="{StaticResource Rw.Body}" />
+                                    <TextBlock x:Name="UpdateStatus" Style="{StaticResource Rw.Caption}" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <Button x:Name="UpdateNotes" Grid.Column="1" Style="{StaticResource Rw.LinkButton}" Content="What's new" Margin="0,0,16,0"
+                                        VerticalAlignment="Center" Click="UpdateNotes_Click" />
+                                <Button x:Name="UpdateButton" Grid.Column="2" Style="{StaticResource Rw.Button}" Content="Check for updates" MinWidth="96"
+                                        VerticalAlignment="Center" Click="Update_Click" />
+                            </Grid>
+                            <Border Style="{StaticResource Rw.Divider}" />
+                            <ui:SettingRow Header="Check for updates automatically" Description="Looks at the project's GitHub releases once a day. Nothing else is sent.">
+                                <CheckBox Style="{StaticResource Rw.Toggle}" IsChecked="{Binding CheckForUpdates}" AutomationProperties.Name="Check for updates automatically" />
+                            </ui:SettingRow>
+                            <Border Style="{StaticResource Rw.Divider}" Visibility="{Binding CheckForUpdates, Converter={StaticResource Visible}}" />
+                            <ui:SettingRow Header="Install updates on their own" Description="Downloads, checks the release's published checksum and restarts Roamwise in the background."
+                                           Visibility="{Binding CheckForUpdates, Converter={StaticResource Visible}}">
+                                <CheckBox Style="{StaticResource Rw.Toggle}" IsChecked="{Binding InstallUpdatesAutomatically}" AutomationProperties.Name="Install updates on their own" />
+                            </ui:SettingRow>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Troubleshooting" Style="{StaticResource Rw.GroupHeading}" />
+                    <Border Style="{StaticResource Rw.Card}">
+                        <ui:SettingRow Header="Diagnostics report"
+                                       Description="A text file with your adapter and every nearby access point Windows reports, for bug reports. Review it before sharing: it contains network names and MAC addresses.">
+                            <Button x:Name="DiagnoseButton" Style="{StaticResource Rw.Button}" Content="Save report…" Click="Diagnose_Click" />
+                        </ui:SettingRow>
                     </Border>
 
                     <TextBlock Text="Location access" Style="{StaticResource Rw.GroupHeading}" />

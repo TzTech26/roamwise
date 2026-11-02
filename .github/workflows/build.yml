@@ -22,8 +22,15 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      # Tags like v1.2.0 set the version the app reports and compares against when it checks for updates.
+      - name: Version
+        shell: pwsh
+        run: |
+          $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '' }
+          "VERSION_ARG=$(if ($v) { "-p:Version=$v" })" >> $env:GITHUB_ENV
+
       - name: Publish
-        run: dotnet publish src/Roamwise/Roamwise.csproj -c Release -r ${{ matrix.rid }} -o out/${{ matrix.rid }}
+        run: dotnet publish src/Roamwise/Roamwise.csproj -c Release -r ${{ matrix.rid }} -o out/${{ matrix.rid }} ${{ env.VERSION_ARG }}
 
       - name: Zip
         shell: pwsh
@@ -43,7 +50,13 @@ jobs:
         with:
           merge-multiple: true
 
+      # The in-app updater refuses to install a zip whose hash isn't listed here.
+      - name: Checksums
+        run: sha256sum Roamwise-*.zip > SHA256SUMS.txt
+
       - uses: softprops/action-gh-release@v2
         with:
-          files: Roamwise-*.zip
+          files: |
+            Roamwise-*.zip
+            SHA256SUMS.txt
           generate_release_notes: true

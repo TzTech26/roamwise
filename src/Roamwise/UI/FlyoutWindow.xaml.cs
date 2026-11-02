@@ -20,7 +20,8 @@ public partial class FlyoutWindow : Window
     private readonly IRoamEngine _engine;
     private readonly AppSettings _settings;
     private readonly ThemeService _theme;
-    private readonly Action _openSettings;
+    private readonly Updater _updater;
+    private readonly Action<string> _openSettings;
     private readonly DispatcherTimer _clock;
     private EngineSnapshot _snap = new();
     private Action? _emptyAction;
@@ -28,13 +29,15 @@ public partial class FlyoutWindow : Window
     /// <summary>When the flyout last closed by losing focus; used to ignore the tray click that caused it.</summary>
     public DateTime LastHidden { get; private set; }
 
-    public FlyoutWindow(IRoamEngine engine, AppSettings settings, ThemeService theme, Action openSettings)
+    public FlyoutWindow(IRoamEngine engine, AppSettings settings, ThemeService theme, Updater updater, Action<string> openSettings)
     {
         InitializeComponent();
         _engine = engine;
         _settings = settings;
         _theme = theme;
+        _updater = updater;
         _openSettings = openSettings;
+        _updater.UpdateAvailable += _ => Dispatcher.BeginInvoke(RenderUpdate);
         DataContext = settings;
 
         _clock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -54,6 +57,7 @@ public partial class FlyoutWindow : Window
         Field.NameOf = _settings.NameOf;
         SyncRules();
         Render(_engine.Snapshot);
+        RenderUpdate();
     }
 
     public void Toggle()
@@ -213,6 +217,7 @@ public partial class FlyoutWindow : Window
             var signal = new TextBlock();
             signal.Inlines.Add(new Run($"{WifiText.Dbm(ap.Rssi)} dBm, "));
             signal.Inlines.Add(new Run(WifiText.Quality(ap.Rssi).ToLowerInvariant()) { Foreground = QualityBrush(ap.Rssi) });
+            if (ap.Stale) signal.Inlines.Add(new Run(" in an earlier scan") { Foreground = (Brush)FindResource("Rw.TextMuted") });
             AddFact("Signal", signal);
         }
         else
@@ -338,7 +343,7 @@ public partial class FlyoutWindow : Window
     private void OpenSettings_Click(object sender, RoutedEventArgs e)
     {
         HideFlyout();
-        _openSettings();
+        _openSettings("general");
     }
 
     private void CheckNow_Click(object sender, RoutedEventArgs e)
@@ -358,4 +363,40 @@ public partial class FlyoutWindow : Window
     }
 
     private void EmptyAction_Click(object sender, RoutedEventArgs e) => _emptyAction?.Invoke();
+
+    private void RenderUpdate()
+    {
+        var u = _updater.Available;
+        UpdateBanner.Visibility = u is not null && u.Tag != _settings.SkippedVersion ? Visibility.Visible : Visibility.Collapsed;
+        if (u is null) return;
+        UpdateTitle.Text = $"Roamwise {u.Version} is available";
+        UpdateButton.Content = Updater.CanSelfUpdate ? "Install" : "Download";
+    }
+
+    private async void UpdateInstall_Click(object sender, RoutedEventArgs e)
+    {
+        if (_updater.Available is not { } u) return;
+        if (!Updater.CanSelfUpdate) { Launch(u.PageUrl); return; }
+        UpdateButton.IsEnabled = false;
+        UpdateButton.Content = "Installing…";
+        UpdateError.Visibility = Visibility.Collapsed;
+        if (await _updater.InstallAsync(u) is string error)
+        {
+            UpdateError.Text = error;
+            UpdateError.Visibility = Visibility.Visible;
+            UpdateButton.Content = "Try again";
+            UpdateButton.IsEnabled = true;
+        }
+    }
+
+    private void UpdateNotes_Click(object sender, RoutedEventArgs e)
+    {
+        if (_updater.Available is { } u) Launch(u.PageUrl);
+    }
+
+    private void UpdateSkip_Click(object sender, RoutedEventArgs e)
+    {
+        if (_updater.Available is { } u) _settings.SkippedVersion = u.Tag;
+        RenderUpdate();
+    }
 }

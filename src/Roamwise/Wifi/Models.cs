@@ -37,6 +37,8 @@ public sealed record AccessPoint
     /// so they're shown but never chosen automatically.
     /// </summary>
     public bool HeardDirectly { get; init; } = true;
+    /// <summary>Missing from the latest scan but heard recently; its signal is from an earlier scan.</summary>
+    public bool Stale { get; init; }
 
     public string Bssid => Mac.Format(BssidBytes);
 
@@ -75,6 +77,14 @@ public static class Mac
     public static string Format(byte[] b) => string.Join(':', b.Select(x => x.ToString("x2")));
 
     public static string Short(byte[] b) => "…" + string.Join(':', b.Skip(3).Select(x => x.ToString("x2")));
+
+    /// <summary>Reads aa:bb:cc:dd:ee:ff, AA-BB-..., aabb.ccdd.eeff or plain hex; null if it isn't a MAC.</summary>
+    public static byte[]? Parse(string? s)
+    {
+        if (s is null) return null;
+        var hex = new string(s.Where(Uri.IsHexDigit).ToArray());
+        return hex.Length == 12 ? Convert.FromHexString(hex) : null;
+    }
 
     public static bool Equal(byte[]? a, byte[]? b) => a is not null && b is not null && a.AsSpan().SequenceEqual(b);
 }

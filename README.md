@@ -14,8 +14,11 @@ Windows tends to stick with the first access point it joined, even after you've 
 - **Ranks for speed, not just bars.** It starts from signal strength and adds points for 5 GHz and 6 GHz, wider channels and Wi-Fi 6/7. It takes points off busy access points, using the load the AP reports in its beacons or, if it doesn't report one, the number of other radios sharing its channel. The speed bonuses fade out as signal weakens, so a weak 6 GHz link never beats a solid 5 GHz one.
 - **Doesn't flap.** A better access point has to stay better for several checks in a row, has to beat yours by a margin you choose, and Roamwise waits between switches. If a switch fails, that access point is skipped for 15 minutes and Windows reconnects you as usual.
 - **Shows its reasoning.** The panel draws every access point on one signal scale, with your rules marked on each bar, and says in a sentence why it's staying or switching. Sort by band (grouped by 6, 5 and 2.4 GHz, then channel), by device, or best first. Select an access point to see its signal, channel, standard, load, hardware and rating breakdown, or switch to it yourself.
-- **Knows which radio belongs to which access point.** Radios are grouped into physical devices. Names come from, in order: names you give (pencil button in the details), your UniFi controller (Settings › Access point names, with a read-only API key), the name an AP announces (Cisco, Aruba, Aerohive, MikroTik, Meraki, Mist, or the WPS device name), and otherwise the end of the device MAC, like "AP 27:63".
+- **Knows which radio belongs to which access point.** Radios are grouped into physical devices. Names come from, in order: names you give (pencil button in the details), your controller or a list you import (Settings › Names), the name an AP announces (Cisco, Aruba, Aerohive, MikroTik, Meraki, Mist, or the WPS device name), and otherwise the end of the device MAC, like "AP 27:63".
 - **Shows 6 GHz radios your PC can't quite hear.** Access points list their 6 GHz siblings in a neighbor report on 2.4 and 5 GHz. Roamwise shows those too, marked as out of earshot, instead of letting them disappear. They aren't picked automatically until Windows can measure their signal.
+- **Pulls names from your controller.** Ubiquiti UniFi, TP-Link Omada, Cisco Meraki, Juniper Mist and Ruckus SmartZone are read with read-only credentials you create; keys are encrypted with Windows DPAPI for your account. For anything else (Aruba, eero, Netgear, OpenWrt, Ruckus Unleashed…) import a CSV or text file with a MAC address and a name per line.
+- **Doesn't interrupt you.** A switch drops the connection for a moment, so Roamwise holds off while you're streaming, downloading or on a call (unless your signal is very weak). Pause it for an hour from the tray menu or Settings.
+- **Updates itself.** Once a day it checks this repository's GitHub releases. Install from the panel or Settings › About, or let it install on its own. Downloads come only from GitHub and must match the release's SHA256SUMS.txt.
 - **Low-latency mode (optional).** Pauses the background scans Windows runs about once a minute, which cause lag spikes in games and calls. Roamwise turns it back off when it closes.
 
 ## Settings
@@ -33,10 +36,13 @@ Everything is adjustable from **Settings** (the gear in the panel, or right-clic
 | 5 GHz / 6 GHz bonus | +6 / +8 dB | How much faster bands count for. |
 | Avoid 2.4 GHz | Off | Counts 2.4 GHz access points 6 points lower. |
 | Account for busy access points | On | Penalize access points with crowded airtime. |
+| Wait while I'm using the network | On, over 2 Mbps | Hold off switching during calls, streams and downloads. |
 | Which networks | All, except excluded | Or switch to "Only networks I list". Saved networks can be added with one click. |
+| Get names from | None | UniFi, Omada, Meraki, Mist, Ruckus, or an imported list. |
+| Updates | Check daily | Optionally install them automatically. |
 
 <p align="center">
-  <img src="docs/settings.png" width="720" alt="The When to switch settings page with a plain-language summary of the rules">
+  <img src="docs/settings.png" width="720" alt="The Switching settings page with a plain-language summary of the rules">
 </p>
 
 ## Install
@@ -50,6 +56,14 @@ Everything is adjustable from **Settings** (the gear in the panel, or right-clic
 ## How switching works
 
 Roamwise calls the Windows Native Wifi API (`WlanConnect`) with your existing profile and a desired BSSID list containing only the target access point. Windows does the actual association, including authentication, so nothing about your network's security changes. Expect a brief reconnect during a switch, which is why Roamwise only switches when the gain is worth it.
+
+## Releasing
+
+Push a tag like `v1.2.0`. The workflow builds x64 and ARM64, stamps the version from the tag, and publishes a release with both zips and `SHA256SUMS.txt`. Running copies pick it up within a day.
+
+```bash
+git tag v1.2.0 && git push origin v1.2.0
+```
 
 ## Build from source
 
@@ -66,7 +80,8 @@ dotnet publish src/Roamwise/Roamwise.csproj -c Release -r win-x64 -o artifacts/w
 Useful switches for `Roamwise.exe`:
 
 - `--background` starts in the tray without opening the panel (used by Start with Windows).
-- `--settings [general|roaming|networks|activity]` opens Settings on a page.
+- `--settings [general|roaming|ranking|networks|names|activity|about]` opens Settings on a page.
+- `--verbose` writes a trace of every check to `%APPDATA%\Roamwise\debug.log`.
 - `--diagnose report.txt` writes everything Roamwise sees (adapters, connection, every access point with its score) and exits. Attach it to bug reports.
 - `--demo` shows the UI with a made-up busy office network.
 
@@ -81,6 +96,8 @@ src/Roamwise/
   Core/RoamEngine.cs       The check-rank-decide-switch loop
   Core/ApScorer.cs         How access points are scored
   Core/AppSettings.cs      Settings model and persistence
+  Core/NameSources.cs      Access point names from controllers and imported lists
+  Core/Updater.cs          Self-update from GitHub Releases
   UI/                      Tray icon, flyout, signal chart, settings window
 tools/make-icon.ps1        Regenerates the app icon
 ```

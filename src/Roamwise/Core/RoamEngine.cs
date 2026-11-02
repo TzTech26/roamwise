@@ -51,6 +51,9 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
     private string? _manualTarget;
     private (Guid iface, bool on)? _lowLatencyApplied;
     private string? _lastProblem;
+    private readonly Dictionary<string, (AccessPoint ap, DateTime seen)> _recent = new();
+    private (long bytes, DateTime at)? _traffic;
+    private double _mbps;
 
     public EngineSnapshot Snapshot { get; private set; } = new();
 
@@ -102,21 +105,25 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
     {
         while (!ct.IsCancellationRequested)
         {
-            try { await CheckAsync(ct); }
+            DebugLog.Write("check: start");
+            try { await CheckAsync(ct); DebugLog.Write($"check: done, {Snapshot.State}, {Snapshot.Siblings.Count} radios. {Snapshot.Decision}"); }
             catch (OperationCanceledException) { return; }
             catch (Exception ex)
             {
                 Publish(Snapshot with { State = EngineState.Problem, Problem = ex.Message, Decision = ex.Message, LastCheck = DateTime.Now });
                 NoteProblem(ex.Message);
+                DebugLog.Write($"check: failed {ex}");
             }
 
             var interval = TimeSpan.FromSeconds(_settings.ScanIntervalSeconds);
             if (_settings.SlowerOnBattery && OnBattery()) interval *= 2;
             Publish(Snapshot with { NextCheck = DateTime.Now + interval });
+            DebugLog.Write($"wait: up to {interval.TotalSeconds:0} s");
 
             try
             {
-                await _wake.WaitAsync(interval, ct);
+                bool woken = await _wake.WaitAsync(interval, ct);
+                DebugLog.Write(woken ? "wait: woken early" : "wait: interval elapsed");
                 // Bursts of Wi-Fi events (connect, roam, disconnect) arrive together; let them settle.
                 await Task.Delay(TimeSpan.FromMilliseconds(750), ct);
                 while (_wake.CurrentCount > 0) _wake.Wait(0);
@@ -135,6 +142,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         }
 
         ApplyLowLatency(adapter.Id);
+        MeasureTraffic(adapter.Id);
 
         IReadOnlyList<AccessPoint> all;
         try
@@ -186,7 +194,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
 
         PruneBlocked();
         var best = scored
-            .Where(s => s != current && s.Ap.HeardDirectly && s.Ap.Rssi >= _settings.MinCandidateDbm && !_blocked.ContainsKey(s.Ap.Bssid))
+            .Where(s => s != current && s.Ap.HeardDirectly && !s.Ap.Stale && s.Ap.Rssi >= _settings.MinCandidateDbm && !_blocked.ContainsKey(s.Ap.Bssid))
             .MaxBy(s => s.Total);
 
         var snapshot = new EngineSnapshot
@@ -223,7 +231,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
     {
         roam = false;
         string ssid = snap.Connection!.Ssid;
-        int heard = snap.Siblings.Count(s => s.Ap.HeardDirectly);
+        int heard = snap.Siblings.Count(s => s.Ap.HeardDirectly && !s.Ap.Stale);
         int others = heard - 1;
 
         if (others == 0)
@@ -231,12 +239,13 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
             ResetStreak();
             return $"This is the only access point for {ssid} in range, so there's nothing to switch to.";
         }
-        if (!_settings.Enabled)
+        if (!_settings.IsRoaming)
         {
             ResetStreak();
+            string paused = _settings.Enabled && _settings.PausedUntil is DateTime until ? $"Paused until {until:t}." : "Auto-roam is paused.";
             return best is not null && best.Total - current.Total >= _settings.MinImprovementDb
-                ? $"Auto-roam is paused. {Label(best.Ap)} would be {Gain(best, current)} better."
-                : "Auto-roam is paused. You're on the best access point anyway.";
+                ? $"{paused} {Label(best.Ap)} would be {Gain(best, current)} better."
+                : $"{paused} You're on the best access point anyway.";
         }
         if (!snap.IsManaged)
         {
@@ -275,6 +284,11 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         var wait = _lastRoam + TimeSpan.FromSeconds(_settings.CooldownSeconds) - DateTime.Now;
         if (wait > TimeSpan.Zero)
             return $"{Label(best.Ap)} is {Gain(best, current)} better. Waiting {Math.Ceiling(wait.TotalSeconds)} s after the last switch.";
+
+        // A switch drops the connection for a moment; don't do it in the middle of a call or download,
+        // unless the current link is so weak it's barely working anyway.
+        if (_settings.HoldOffWhenBusy && _mbps >= _settings.BusyMbps && current.Ap.Rssi > -80)
+            return $"{Label(best.Ap)} is {Gain(best, current)} better. Holding off while you're using the network ({_mbps:0.#} Mbps).";
 
         roam = true;
         return $"Switching to {Label(best.Ap)} ({Gain(best, current)} better)…";
@@ -334,7 +348,20 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
             .Select(g => g.MaxBy(a => a.Rssi)!)
             .ToList();
 
+        // Windows doesn't catch every radio in every scan. Keep ones heard recently, marked stale, so the list
+        // doesn't flicker; stale radios are shown but never picked automatically.
+        var now = DateTime.Now;
+        var keepFor = TimeSpan.FromSeconds(Math.Max(75, _settings.ScanIntervalSeconds * 2.5));
+        foreach (var ap in siblings) _recent[ap.Bssid] = (ap, now);
+        foreach (var key in _recent.Where(kv => now - kv.Value.seen > keepFor || kv.Value.ap.Ssid != connection.Ssid).Select(kv => kv.Key).ToList())
+            _recent.Remove(key);
+
         int? liveRssi = _wlan.GetRssi(iface);
+        string currentBssid = Mac.Format(connection.BssidBytes);
+        foreach (var (bssid, (ap, _)) in _recent)
+            if (!siblings.Any(s => s.Bssid == bssid))
+                siblings.Add(bssid == currentBssid ? ap : ap with { Stale = true });
+
         int idx = siblings.FindIndex(a => Mac.Equal(a.BssidBytes, connection.BssidBytes));
         if (idx >= 0)
         {
@@ -357,6 +384,20 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
             });
         }
         return siblings;
+    }
+
+    /// <summary>Average traffic on the Wi-Fi adapter since the previous check, in Mbps.</summary>
+    private void MeasureTraffic(Guid iface)
+    {
+        var nic = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+            .FirstOrDefault(n => Guid.TryParse(n.Id, out var id) && id == iface);
+        if (nic is null) { _mbps = 0; return; }
+        var stats = nic.GetIPStatistics();
+        long bytes = stats.BytesReceived + stats.BytesSent;
+        var now = DateTime.Now;
+        if (_traffic is { } prev && now > prev.at && bytes >= prev.bytes)
+            _mbps = (bytes - prev.bytes) * 8 / 1_000_000.0 / (now - prev.at).TotalSeconds;
+        _traffic = (bytes, now);
     }
 
     private void ApplyLowLatency(Guid iface)

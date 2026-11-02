@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -18,22 +17,23 @@ public partial class SettingsWindow : Window
     private readonly ActivityLog _log;
     private readonly IRoamEngine _engine;
     private readonly ThemeService _theme;
-    private readonly UnifiController _unifi;
+    private readonly NameSources _names;
+    private readonly Updater _updater;
 
     public sealed record ActivityRow(string Glyph, Brush GlyphBrush, string When, string Message);
 
-    public SettingsWindow(AppSettings settings, ActivityLog log, IRoamEngine engine, ThemeService theme, UnifiController unifi)
+    public SettingsWindow(AppSettings settings, ActivityLog log, IRoamEngine engine, ThemeService theme, NameSources names, Updater updater)
     {
         InitializeComponent();
         _settings = settings;
         _log = log;
         _engine = engine;
         _theme = theme;
-        _unifi = unifi;
+        _names = names;
+        _updater = updater;
         DataContext = settings;
 
-        var version = Assembly.GetExecutingAssembly().GetName().Version;
-        VersionText.Text = $"Version {version?.ToString(3)}";
+        VersionText.Text = $"Version {Updater.CurrentVersion}";
 
         SourceInitialized += (_, _) => ApplyEffects();
         _theme.Changed += OnThemeChanged;
@@ -45,14 +45,17 @@ public partial class SettingsWindow : Window
             _theme.Changed -= OnThemeChanged;
             _settings.PropertyChanged -= OnSettingChanged;
             _log.Changed -= OnLogChanged;
+            _updater.UpdateAvailable -= OnUpdateAvailable;
         };
 
         UpdateSummary();
         UpdateNetworks();
         UpdateActivity();
         UpdateNames();
-        UnifiHostBox.TextChanged += (_, _) => UnifiHostHint.Visibility = UnifiHostBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        UnifiHostHint.Visibility = UnifiHostBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        LoadSource();
+        RenderPause();
+        RenderUpdate();
+        _updater.UpdateAvailable += OnUpdateAvailable;
     }
 
     public void ShowPage(string page)
@@ -63,6 +66,8 @@ public partial class SettingsWindow : Window
             "activity" => NavActivity,
             "roaming" => NavRoaming,
             "names" => NavNames,
+            "about" or "updates" => NavAbout,
+            "ranking" => NavRanking,
             _ => NavGeneral,
         };
         nav.IsChecked = true;
@@ -85,10 +90,14 @@ public partial class SettingsWindow : Window
     {
         UpdateSummary();
         if (e.PropertyName == nameof(AppSettings.Scope)) UpdateNetworks();
-        if (e.PropertyName is nameof(AppSettings.ApNames) or nameof(AppSettings.UnifiApiKeyProtected)) UpdateNames();
+        if (e.PropertyName == nameof(AppSettings.ApNames)) UpdateNames();
+        if (e.PropertyName is nameof(AppSettings.Enabled) or nameof(AppSettings.PausedUntil)) RenderPause();
+        if (e.PropertyName == nameof(AppSettings.LastUpdateCheck)) RenderUpdate();
     });
 
     private void OnLogChanged() => Dispatcher.BeginInvoke(UpdateActivity);
+
+    private void OnUpdateAvailable(UpdateInfo _) => Dispatcher.BeginInvoke(() => RenderUpdate());
 
     private void Nav_Checked(object sender, RoutedEventArgs e)
     {
@@ -222,49 +231,229 @@ public partial class SettingsWindow : Window
             .ToList();
         CustomNames.ItemsSource = rows;
         CustomNamesEmpty.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-
-        bool saved = _settings.UnifiApiKeyProtected.Length > 0;
-        UnifiKeyHint.Text = saved ? "Saved. Paste a new key to replace it." : "Paste your API key";
-        UnifiKeyHint.Visibility = UnifiKeyBox.Password.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        UnifiForget.Visibility = saved ? Visibility.Visible : Visibility.Collapsed;
-        if (UnifiStatus.Text.Length == 0)
-            UnifiStatus.Text = _settings.ControllerSyncedAt is DateTime t && saved
-                ? $"Connected. {_settings.ControllerDevices.Values.Distinct().Count()} devices, last updated {t:t}."
-                : "Not connected.";
     }
 
-    private void UnifiKeyBox_PasswordChanged(object sender, RoutedEventArgs e) =>
-        UnifiKeyHint.Visibility = UnifiKeyBox.Password.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+    // ---- Name sources ----
 
-    private async void UnifiConnect_Click(object sender, RoutedEventArgs e)
+    private NameSourceKind SelectedSource => (SourceBox.SelectedItem as NameSourceInfo)?.Kind ?? NameSourceKind.None;
+
+    private void SourceBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        _settings.UnifiHost = UnifiHostBox.Text;
-        if (UnifiKeyBox.Password.Length > 0)
+        if (_loadingSource) return;
+        if (SelectedSource != _settings.NameSource)
         {
-            _settings.UnifiApiKeyProtected = UnifiController.Protect(UnifiKeyBox.Password);
-            UnifiKeyBox.Clear();
+            // Credentials belong to one source; start clean when switching.
+            _settings.NameSource = SelectedSource;
+            _settings.ControllerAddress = "";
+            _settings.ControllerUser = "";
+            _settings.ControllerExtra = "";
+            _settings.ControllerSecretProtected = "";
+            _settings.SetNamedDevices([]);
+            _settings.ControllerSyncedAt = null;
+            AddressBox.Clear(); UserBox.Clear(); ExtraBox.Clear(); SecretBox.Clear();
+            SourceStatus.Text = "";
+        }
+        RenderSource();
+    }
+
+    private bool _loadingSource;
+
+    private void LoadSource()
+    {
+        _loadingSource = true;
+        SourceBox.ItemsSource = NameSources.All;
+        SourceBox.SelectedItem = NameSources.Info(_settings.NameSource);
+        AddressBox.Text = _settings.ControllerAddress;
+        UserBox.Text = _settings.ControllerUser;
+        ExtraBox.Text = _settings.ControllerExtra;
+        _loadingSource = false;
+
+        AddressBox.TextChanged += (_, _) => Hint(AddressHint, AddressBox.Text);
+        ExtraBox.TextChanged += (_, _) => Hint(ExtraHint, ExtraBox.Text);
+        RenderSource();
+    }
+
+    private void RenderSource()
+    {
+        var info = NameSources.Info(SelectedSource);
+        bool none = info.Kind == NameSourceKind.None, file = info.Kind == NameSourceKind.File;
+        SourceRow.Description = info.Help;
+
+        AddressGroup.Visibility = Show(info.AddressLabel);
+        AddressRow.Header = info.AddressLabel;
+        AddressHint.Text = info.AddressHint;
+        AddressBox.IsReadOnly = file;
+        BrowseButton.Visibility = file ? Visibility.Visible : Visibility.Collapsed;
+        Hint(AddressHint, AddressBox.Text);
+
+        UserGroup.Visibility = Show(info.UserLabel);
+        UserRow.Header = info.UserLabel;
+
+        SecretGroup.Visibility = Show(info.SecretLabel);
+        SecretRow.Header = info.SecretLabel;
+        bool saved = _settings.ControllerSecretProtected.Length > 0;
+        SecretHint.Text = saved ? "Saved. Enter a new one to replace it." : $"Paste the {info.SecretLabel?.ToLowerInvariant()}";
+        Hint(SecretHint, SecretBox.Password);
+
+        ExtraGroup.Visibility = Show(info.ExtraLabel);
+        ExtraRow.Header = info.ExtraLabel;
+        ExtraHint.Text = info.ExtraHint;
+        Hint(ExtraHint, ExtraBox.Text);
+
+        SourceFooter.Visibility = none ? Visibility.Collapsed : Visibility.Visible;
+        SourceConnect.Content = file ? "Import" : "Connect";
+        SourceForget.Content = file ? "Remove" : "Disconnect";
+        SourceForget.Visibility = _names.IsConfigured || _settings.NamedDevices.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (SourceStatus.Text.Length == 0)
+        {
+            int n = _settings.NamedDevices.Count;
+            SourceStatus.SetResourceReference(TextBlock.ForegroundProperty, "Rw.TextMuted");
+            SourceStatus.Text = _settings.ControllerSyncedAt is DateTime t && n > 0
+                ? $"{(file ? "Imported" : "Connected.")} {n} {(n == 1 ? "device" : "devices")}, updated {(t.Date == DateTime.Today ? t.ToString("t") : t.ToString("MMM d"))}."
+                : file ? "Nothing imported yet." : "Not connected.";
         }
 
-        UnifiConnect.IsEnabled = false;
-        UnifiStatus.Text = "Connecting…";
-        var (ok, message) = await _unifi.SyncAsync();
-        UnifiStatus.Text = message;
-        UnifiStatus.SetResourceReference(TextBlock.ForegroundProperty, ok ? "Rw.TextMuted" : "Rw.Weak");
-        UnifiConnect.IsEnabled = true;
-        UpdateNames();
+        static Visibility Show(string? label) => label is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private static void Hint(TextBlock hint, string text) => hint.Visibility = text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+    private void SecretBox_PasswordChanged(object sender, RoutedEventArgs e) => Hint(SecretHint, SecretBox.Password);
+
+    private void Browse_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Choose a list of access points",
+            Filter = "Device lists (*.csv;*.txt)|*.csv;*.txt|All files (*.*)|*.*",
+        };
+        if (dialog.ShowDialog(this) == true) AddressBox.Text = dialog.FileName;
+    }
+
+    private async void SourceConnect_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.ControllerAddress = AddressBox.Text.Trim();
+        _settings.ControllerUser = UserBox.Text.Trim();
+        _settings.ControllerExtra = ExtraBox.Text.Trim();
+        if (SecretBox.Password.Length > 0)
+        {
+            _settings.ControllerSecretProtected = NameSources.Protect(SecretBox.Password);
+            SecretBox.Clear();
+        }
+
+        SourceConnect.IsEnabled = false;
+        SourceStatus.SetResourceReference(TextBlock.ForegroundProperty, "Rw.TextMuted");
+        SourceStatus.Text = SelectedSource == NameSourceKind.File ? "Importing…" : "Connecting…";
+        var (ok, message) = await _names.SyncAsync();
+        SourceStatus.Text = message;
+        SourceStatus.SetResourceReference(TextBlock.ForegroundProperty, ok ? "Rw.TextMuted" : "Rw.Weak");
+        SourceConnect.IsEnabled = true;
+        RenderSource();
         _engine.CheckNow();
     }
 
-    private void UnifiForget_Click(object sender, RoutedEventArgs e)
+    private void SourceForget_Click(object sender, RoutedEventArgs e)
     {
-        _settings.UnifiApiKeyProtected = "";
-        _settings.SetControllerDevices([]);
+        _settings.ControllerSecretProtected = "";
+        _settings.SetNamedDevices([]);
         _settings.ControllerSyncedAt = null;
-        UnifiStatus.Text = "Disconnected. UniFi names are no longer used.";
-        UnifiStatus.SetResourceReference(TextBlock.ForegroundProperty, "Rw.TextMuted");
-        UpdateNames();
+        SourceStatus.SetResourceReference(TextBlock.ForegroundProperty, "Rw.TextMuted");
+        SourceStatus.Text = "Removed. Those names are no longer used.";
+        RenderSource();
     }
 
+    // ---- Pause ----
+
+    private void RenderPause()
+    {
+        bool paused = _settings.Enabled && _settings.PausedUntil is DateTime u && u > DateTime.Now;
+        PauseRow.Header = paused ? $"Paused until {_settings.PausedUntil:t}" : "Pause for an hour";
+        PauseButton.Content = paused ? "Resume" : "Pause";
+        PauseButton.IsEnabled = _settings.Enabled;
+    }
+
+    private void Pause_Click(object sender, RoutedEventArgs e) =>
+        _settings.PausedUntil = _settings.PausedUntil is DateTime u && u > DateTime.Now ? null : DateTime.Now.AddHours(1);
+
+    // ---- Updates ----
+
+    private void RenderUpdate(string? status = null)
+    {
+        var u = _updater.Available;
+        UpdateTitle.Text = u is null ? $"Roamwise {Updater.CurrentVersion}" : $"Roamwise {u.Version} is available";
+        UpdateStatus.SetResourceReference(TextBlock.ForegroundProperty, "Rw.TextMuted");
+        UpdateStatus.Text = status ?? (u is not null
+            ? $"You have {Updater.CurrentVersion}."
+            : _settings.LastUpdateCheck is DateTime t ? $"Up to date. Last checked {(t.Date == DateTime.Today ? t.ToString("t") : t.ToString("MMM d"))}." : "Not checked yet.");
+        UpdateNotes.Visibility = u is null ? Visibility.Collapsed : Visibility.Visible;
+        UpdateButton.Content = u is null ? "Check for updates" : Updater.CanSelfUpdate ? "Install and restart" : "Download";
+        UpdateButton.Style = (Style)FindResource(u is null ? "Rw.Button" : "Rw.AccentButton");
+    }
+
+    private async void Update_Click(object sender, RoutedEventArgs e)
+    {
+        UpdateButton.IsEnabled = false;
+        try
+        {
+            if (_updater.Available is { } u)
+            {
+                if (!Updater.CanSelfUpdate) { Launch(u.PageUrl); return; }
+                UpdateStatus.Text = "Downloading…";
+                if (await _updater.InstallAsync(u) is string error) ShowError(error);
+                return;
+            }
+            UpdateStatus.Text = "Checking…";
+            try
+            {
+                await _updater.CheckAsync();
+                RenderUpdate();
+            }
+            catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or KeyNotFoundException)
+            {
+                ShowError(ex is System.Net.Http.HttpRequestException { StatusCode: System.Net.HttpStatusCode.NotFound }
+                    ? "No releases have been published yet."
+                    : "Couldn't reach GitHub. Check your connection and try again.");
+            }
+        }
+        finally { UpdateButton.IsEnabled = true; }
+
+        void ShowError(string message)
+        {
+            RenderUpdate(message);
+            UpdateStatus.SetResourceReference(TextBlock.ForegroundProperty, "Rw.Weak");
+        }
+    }
+
+    private void UpdateNotes_Click(object sender, RoutedEventArgs e) => Launch(_updater.Available?.PageUrl ?? Updater.ReleasesPage);
+
+    // ---- Diagnostics ----
+
+    private async void Diagnose_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Save diagnostics report",
+            FileName = $"roamwise-diagnostics-{DateTime.Now:yyyyMMdd-HHmm}.txt",
+            Filter = "Text files (*.txt)|*.txt",
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        DiagnoseButton.IsEnabled = false;
+        DiagnoseButton.Content = "Scanning…";
+        try
+        {
+            await Diagnostics.WriteReportAsync(dialog.FileName);
+            Launch(dialog.FileName);
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or WlanException)
+        {
+            MessageBox.Show(this, $"Couldn't write the report: {ex.Message}", "Roamwise", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            DiagnoseButton.Content = "Save report…";
+            DiagnoseButton.IsEnabled = true;
+        }
+    }
     private void ResetName_Click(object sender, RoutedEventArgs e)
     {
         string key = (string)((Button)sender).Tag;

@@ -8,20 +8,25 @@ using Roamwise.Wifi;
 
 namespace Roamwise.Core;
 
+
 public enum NetworkScope { AllExceptExcluded, OnlyIncluded }
 
 public enum ThemePreference { System, Light, Dark }
 
-/// <summary>An access point as the UniFi controller knows it.</summary>
-public sealed record ControllerDevice(string Mac, string Name, string? Model);
-
 /// <summary>How the flyout orders access points.</summary>
 public enum ApSort { Band, Device, Best }
+
+/// <summary>Where Roamwise gets access point names from, besides the ones you type.</summary>
+public enum NameSourceKind { None, Unifi, Omada, Meraki, Mist, Ruckus, File }
+
+/// <summary>An access point as a controller (or an imported list) knows it.</summary>
+public sealed record ControllerDevice(string Mac, string Name, string? Model, string? Maker = null);
 
 /// <summary>Every user-facing setting. Observable so the settings window can bind straight to it.</summary>
 public sealed class AppSettings : INotifyPropertyChanged
 {
     private bool _enabled = true;
+    private DateTime? _pausedUntil;
     private bool _startWithWindows;
     private bool _notifyOnRoam = true;
     private ThemePreference _theme = ThemePreference.System;
@@ -34,6 +39,8 @@ public sealed class AppSettings : INotifyPropertyChanged
     private int _minCandidateDbm = -72;
     private int _confirmScans = 2;
     private int _cooldownSeconds = 120;
+    private bool _holdOffWhenBusy = true;
+    private int _busyMbps = 2;
 
     private int _bonus5GhzDb = 6;
     private int _bonus6GhzDb = 8;
@@ -43,14 +50,27 @@ public sealed class AppSettings : INotifyPropertyChanged
     private NetworkScope _scope = NetworkScope.AllExceptExcluded;
     private bool _lowLatencyMode;
     private ApSort _sort = ApSort.Band;
-    private string _unifiHost = "";
-    private string _unifiKey = "";
+
+    private NameSourceKind _nameSource;
+    private string _controllerAddress = "";
+    private string _controllerUser = "";
+    private string _controllerSecret = "";
+    private string _controllerExtra = "";
+
+    private bool _checkForUpdates = true;
+    private bool _installUpdatesAutomatically;
 
     // General
     public bool Enabled { get => _enabled; set => Set(ref _enabled, value); }
+    /// <summary>Auto-roam is paused until this time (from "Pause for 1 hour").</summary>
+    public DateTime? PausedUntil { get => _pausedUntil; set => Set(ref _pausedUntil, value); }
     public bool StartWithWindows { get => _startWithWindows; set => Set(ref _startWithWindows, value); }
     public bool NotifyOnRoam { get => _notifyOnRoam; set => Set(ref _notifyOnRoam, value); }
     public ThemePreference Theme { get => _theme; set => Set(ref _theme, value); }
+
+    /// <summary>Auto-roam is on and no timed pause is running.</summary>
+    [JsonIgnore]
+    public bool IsRoaming => Enabled && !(PausedUntil > DateTime.Now);
 
     // When to check and when to switch
     public int ScanIntervalSeconds { get => _scanIntervalSeconds; set => Set(ref _scanIntervalSeconds, Math.Clamp(value, 10, 600)); }
@@ -61,6 +81,9 @@ public sealed class AppSettings : INotifyPropertyChanged
     public int MinCandidateDbm { get => _minCandidateDbm; set => Set(ref _minCandidateDbm, Math.Clamp(value, -85, -50)); }
     public int ConfirmScans { get => _confirmScans; set => Set(ref _confirmScans, Math.Clamp(value, 1, 6)); }
     public int CooldownSeconds { get => _cooldownSeconds; set => Set(ref _cooldownSeconds, Math.Clamp(value, 30, 1800)); }
+    /// <summary>Don't switch while traffic is above <see cref="BusyMbps"/>, since a switch briefly drops the connection.</summary>
+    public bool HoldOffWhenBusy { get => _holdOffWhenBusy; set => Set(ref _holdOffWhenBusy, value); }
+    public int BusyMbps { get => _busyMbps; set => Set(ref _busyMbps, Math.Clamp(value, 1, 50)); }
 
     // How access points are ranked
     public int Bonus5GhzDb { get => _bonus5GhzDb; set => Set(ref _bonus5GhzDb, Math.Clamp(value, 0, 15)); }
@@ -76,24 +99,55 @@ public sealed class AppSettings : INotifyPropertyChanged
     // Extra tweaks
     public bool LowLatencyMode { get => _lowLatencyMode; set => Set(ref _lowLatencyMode, value); }
 
+    // Updates
+    public bool CheckForUpdates { get => _checkForUpdates; set => Set(ref _checkForUpdates, value); }
+    public bool InstallUpdatesAutomatically { get => _installUpdatesAutomatically; set => Set(ref _installUpdatesAutomatically, value); }
+    public DateTime? LastUpdateCheck { get; set; }
+    /// <summary>A version the user chose to skip.</summary>
+    public string? SkippedVersion { get; set; }
+
     // Flyout
     public ApSort Sort { get => _sort; set => Set(ref _sort, value); }
+
+    // ---- Access point names ----
 
     /// <summary>Names the user gave access points, keyed by <see cref="AccessPoint.DeviceKey"/>.</summary>
     public Dictionary<string, string> ApNames { get; set; } = new();
 
-    public void ForgetName(string deviceKey)
+    public NameSourceKind NameSource { get => _nameSource; set => Set(ref _nameSource, value); }
+    /// <summary>Controller URL or host (UniFi, Omada, Ruckus), cloud region host (Mist), or imported file path.</summary>
+    public string ControllerAddress { get => _controllerAddress; set => Set(ref _controllerAddress, value?.Trim() ?? ""); }
+    /// <summary>User name (Ruckus) or client ID (Omada).</summary>
+    public string ControllerUser { get => _controllerUser; set => Set(ref _controllerUser, value?.Trim() ?? ""); }
+    /// <summary>API key, token, password or client secret, encrypted for this Windows user (DPAPI).</summary>
+    public string ControllerSecretProtected { get => _controllerSecret; set => Set(ref _controllerSecret, value ?? ""); }
+    /// <summary>Omada ID (Omada) or organization ID (Meraki, Mist; optional).</summary>
+    public string ControllerExtra { get => _controllerExtra; set => Set(ref _controllerExtra, value?.Trim() ?? ""); }
+    public List<ControllerDevice> NamedDevices { get; set; } = [];
+    public DateTime? ControllerSyncedAt { get; set; }
+
+    // Settings files from 1.0 stored a UniFi controller under these names.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public JsonElement? ControllerDevices { get => null; set { } }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? UnifiHost
     {
-        if (ApNames.Remove(deviceKey)) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ApNames)));
+        get => null;
+        set { if (!string.IsNullOrEmpty(value) && ControllerAddress.Length == 0) { _nameSource = NameSourceKind.Unifi; _controllerAddress = value; } }
     }
 
-    // UniFi controller (names and models for UniFi access points)
-    public string UnifiHost { get => _unifiHost; set => Set(ref _unifiHost, value?.Trim() ?? ""); }
-    /// <summary>The UniFi API key, encrypted for this Windows user (DPAPI). Never stored in plain text.</summary>
-    public string UnifiApiKeyProtected { get => _unifiKey; set => Set(ref _unifiKey, value ?? ""); }
-    /// <summary>Last device list fetched from the controller, keyed by <see cref="AccessPoint.DeviceKey"/> forms.</summary>
-    public Dictionary<string, ControllerDevice> ControllerDevices { get; set; } = new();
-    public DateTime? ControllerSyncedAt { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? UnifiApiKeyProtected
+    {
+        get => null;
+        set { if (!string.IsNullOrEmpty(value) && _controllerSecret.Length == 0) _controllerSecret = value; }
+    }
+
+    public void ForgetName(string deviceKey)
+    {
+        if (ApNames.Remove(deviceKey)) Raise(nameof(ApNames));
+    }
 
     /// <summary>Your own name, then the controller's, then whatever the AP announces, then a short ID.</summary>
     public string NameOf(AccessPoint ap) =>
@@ -102,25 +156,37 @@ public sealed class AppSettings : INotifyPropertyChanged
         : ap.DefaultName;
 
     public string HardwareOf(AccessPoint ap) =>
-        Controller(ap)?.Model is { Length: > 0 } model ? $"{ap.Manufacturer ?? "Ubiquiti"} {model}" : ap.Hardware;
+        Controller(ap) is { Model.Length: > 0 } d ? $"{d.Maker ?? ap.Manufacturer} {d.Model}".Trim() : ap.Hardware;
 
-    private ControllerDevice? Controller(AccessPoint ap) =>
-        ControllerDevices.TryGetValue(ap.DeviceKey, out var d) ? d
-        : ControllerDevices.TryGetValue(Convert.ToHexString(ap.BssidBytes, 1, 4), out d) ? d
-        : null;
-
-    public void SetControllerDevices(IEnumerable<ControllerDevice> devices)
+    /// <summary>
+    /// Finds the controller's record for a radio. Controllers list a device's base MAC; its radios use that MAC
+    /// (UniFi announces it), share its middle octets, or count up a little from it, depending on the vendor.
+    /// </summary>
+    private ControllerDevice? Controller(AccessPoint ap)
     {
-        ControllerDevices = new();
-        foreach (var d in devices)
+        if (NamedDevices.Count == 0) return null;
+        byte[] radio = ap.DeviceMac ?? ap.BssidBytes;
+        ControllerDevice? best = null;
+        int bestDistance = int.MaxValue;
+        foreach (var d in NamedDevices)
         {
-            byte[] mac = Convert.FromHexString(d.Mac.Replace(":", "").Replace("-", ""));
-            if (mac.Length != 6) continue;
-            ControllerDevices[Convert.ToHexString(mac)] = d;           // matches the device MAC UniFi announces
-            ControllerDevices.TryAdd(Convert.ToHexString(mac, 1, 4), d); // fallback: radios sharing the middle octets
+            if (Mac.Parse(d.Mac) is not { } mac) continue;
+            if (mac.AsSpan().SequenceEqual(radio)) return d;
+            if (mac.AsSpan(1, 4).SequenceEqual(ap.BssidBytes.AsSpan(1, 4))) return d;
+            if (mac[1] != ap.BssidBytes[1] || mac[2] != ap.BssidBytes[2]) continue;
+            int distance = Math.Abs(Tail(mac) - Tail(ap.BssidBytes));
+            if (distance < 64 && distance < bestDistance) { best = d; bestDistance = distance; }
         }
-        ControllerSyncedAt = DateTime.Now;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ApNames)));
+        return best;
+
+        static int Tail(byte[] m) => (m[3] << 16) | (m[4] << 8) | m[5];
+    }
+
+    public void SetNamedDevices(IEnumerable<ControllerDevice> devices)
+    {
+        NamedDevices = devices.Where(d => Mac.Parse(d.Mac) is not null).ToList();
+        ControllerSyncedAt = NamedDevices.Count > 0 ? DateTime.Now : null;
+        Raise(nameof(ApNames));
     }
 
     /// <summary>Sets or clears (empty name) a custom name for every radio of this access point.</summary>
@@ -129,7 +195,7 @@ public sealed class AppSettings : INotifyPropertyChanged
         name = name?.Trim();
         if (string.IsNullOrEmpty(name) || name == ap.DefaultName) ApNames.Remove(ap.DeviceKey);
         else ApNames[ap.DeviceKey] = name;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ApNames)));
+        Raise(nameof(ApNames));
     }
 
     public bool AppliesTo(string ssid)
@@ -144,11 +210,14 @@ public sealed class AppSettings : INotifyPropertyChanged
     {
         if (EqualityComparer<T>.Default.Equals(field, value)) return;
         field = value;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        Raise(name);
     }
 
-    internal void RaiseListsChanged() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Scope)));
+    private void Raise(string? name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+    internal void RaiseListsChanged() => Raise(nameof(Scope));
 }
+
 
 /// <summary>Loads settings from %APPDATA%\Roamwise and saves them shortly after any change.</summary>
 public sealed class SettingsStore

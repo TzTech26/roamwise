@@ -45,6 +45,32 @@
                         AutomationProperties.Name="Settings" Click="OpenSettings_Click" />
             </Grid>
 
+            <!-- A new release is out -->
+            <Border x:Name="UpdateBanner" Margin="0,12,4,0" Padding="12,9,8,10" CornerRadius="6" Visibility="Collapsed"
+                    Background="{DynamicResource Rw.AccentSoft}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="&#xE896;" Style="{StaticResource Rw.Glyph}" FontSize="14" Foreground="{DynamicResource Rw.AccentText}"
+                               VerticalAlignment="Top" Margin="0,2,10,0" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock x:Name="UpdateTitle" Style="{StaticResource Rw.Subtitle}" FontSize="13" />
+                        <TextBlock x:Name="UpdateText" Style="{StaticResource Rw.Caption}" FontSize="12" Margin="0,1,0,0">
+                            <Hyperlink x:Name="UpdateNotes" Click="UpdateNotes_Click" Foreground="{DynamicResource Rw.AccentText}">What's new</Hyperlink>
+                            <Run Text="  " />
+                            <Hyperlink Click="UpdateSkip_Click" Foreground="{DynamicResource Rw.TextMuted}">Skip this version</Hyperlink>
+                        </TextBlock>
+                        <TextBlock x:Name="UpdateError" Style="{StaticResource Rw.Caption}" FontSize="12" Margin="0,4,0,0"
+                                   Foreground="{DynamicResource Rw.Weak}" Visibility="Collapsed" />
+                    </StackPanel>
+                    <Button x:Name="UpdateButton" Grid.Column="2" Style="{StaticResource Rw.AccentButton}" FontSize="12" Padding="10,3,10,4"
+                            MinHeight="26" VerticalAlignment="Center" Margin="8,0,0,0" Content="Install" Click="UpdateInstall_Click" />
+                </Grid>
+            </Border>
+
             <!-- The network you're on -->
             <Grid Margin="0,12,4,0">
                 <Grid.ColumnDefinitions>

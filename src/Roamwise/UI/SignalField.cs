@@ -101,6 +101,7 @@ public sealed class SignalField : FrameworkElement
     private static string Channel(AccessPoint ap) =>
         ap.Band == WifiBand.Unknown ? ""
         : !ap.HeardDirectly ? $"ch {ap.Channel}, out of earshot"
+        : ap.Stale ? $"ch {ap.Channel}, missed last scan"
         : $"ch {ap.Channel}, {ap.WidthMHz} MHz";
 
     private List<Item> BuildLayout()
@@ -240,6 +241,8 @@ public sealed class SignalField : FrameworkElement
             if (isSelected && IsKeyboardFocused)
                 dc.DrawRoundedRectangle(null, new Pen(TextBrush, 1.5), rowRect, 4, 4);
 
+            if (ap.Stale) dc.PushOpacity(0.45);
+
             // Line 1: name, channel, tag, value.
             double textMid = row.Top + 12;
             var value = ap.HeardDirectly
@@ -297,6 +300,7 @@ public sealed class SignalField : FrameworkElement
 
             if (isCurrent)
                 dc.DrawEllipse(AccentBrush, new Pen(TextBrush, 1.5), new Point(fillW, barMid), 5, 5);
+            if (ap.Stale) dc.Pop();
         }
 
         if (_layout.Count == 0)
