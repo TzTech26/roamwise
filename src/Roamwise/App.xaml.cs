@@ -127,9 +127,9 @@ public partial class App : Application
         {
             if (r.Success)
                 _tray.Notify($"Switched to a better access point",
-                    $"{r.Ssid}: {r.To.ShortBssid}, {WifiText.Band(r.To.Band)}, {WifiText.Dbm(r.To.Rssi)} dBm (was {WifiText.Dbm(r.From.Rssi)}).");
+                    $"{r.Ssid}: now on {Settings.NameOf(r.To)} ({WifiText.Band(r.To.Band)}), {WifiText.Dbm(r.To.Rssi)} dBm (was {WifiText.Dbm(r.From.Rssi)}).");
             else
-                _tray.Notify("Couldn't switch access points", $"Staying on {r.From.ShortBssid}. Roamwise will skip {r.To.ShortBssid} for 15 minutes.");
+                _tray.Notify("Couldn't switch access points", $"Staying on {Settings.NameOf(r.From)}. Roamwise will skip {Settings.NameOf(r.To)} ({WifiText.Band(r.To.Band)}) for 15 minutes.");
         });
     }
 

@@ -67,7 +67,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         {
             // Rule changes should show up in the flyout right away, not at the next scheduled check.
             if (e.PropertyName is not nameof(AppSettings.Theme) and not nameof(AppSettings.StartWithWindows)
-                and not nameof(AppSettings.NotifyOnRoam))
+                and not nameof(AppSettings.NotifyOnRoam) and not nameof(AppSettings.Sort))
                 Wake();
         };
     }
@@ -195,7 +195,8 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
             Connection = connection,
             Siblings = scored,
             Current = current,
-            Candidate = best,
+            // Only flagged in the UI once it clears the required improvement.
+            Candidate = best is not null && best.Total - current.Total >= _settings.MinImprovementDb ? best : null,
             IsManaged = managed,
             NearbyNetworks = nearby,
             LastCheck = DateTime.Now,
@@ -233,7 +234,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         {
             ResetStreak();
             return best is not null && best.Total - current.Total >= _settings.MinImprovementDb
-                ? $"Auto-roam is paused. {best.Ap.ShortBssid} would be {Gain(best, current)} better."
+                ? $"Auto-roam is paused. {Label(best.Ap)} would be {Gain(best, current)} better."
                 : "Auto-roam is paused. You're on the best access point anyway.";
         }
         if (!snap.IsManaged)
@@ -261,27 +262,27 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
             ResetStreak();
             return gain <= 0
                 ? $"You're on the best of {snap.Siblings.Count} access points for {ssid}."
-                : $"{best.Ap.ShortBssid} is only {Gain(best, current)} better. Switching needs +{_settings.MinImprovementDb}.";
+                : $"{Label(best.Ap)} is only {Gain(best, current)} better. Switching needs +{_settings.MinImprovementDb}.";
         }
 
         if (_streakBssid != best.Ap.Bssid) { _streakBssid = best.Ap.Bssid; _streak = 0; }
         _streak++;
         int remaining = _settings.ConfirmScans - _streak;
         if (remaining > 0)
-            return $"{best.Ap.ShortBssid} is {Gain(best, current)} better. Confirming over {Plural(remaining, "more check")}.";
+            return $"{Label(best.Ap)} is {Gain(best, current)} better. Confirming over {Plural(remaining, "more check")}.";
 
         var wait = _lastRoam + TimeSpan.FromSeconds(_settings.CooldownSeconds) - DateTime.Now;
         if (wait > TimeSpan.Zero)
-            return $"{best.Ap.ShortBssid} is {Gain(best, current)} better. Waiting {Math.Ceiling(wait.TotalSeconds)} s after the last switch.";
+            return $"{Label(best.Ap)} is {Gain(best, current)} better. Waiting {Math.Ceiling(wait.TotalSeconds)} s after the last switch.";
 
         roam = true;
-        return $"Switching to {best.Ap.ShortBssid} ({Gain(best, current)} better)…";
+        return $"Switching to {Label(best.Ap)} ({Gain(best, current)} better)…";
     }
 
     private async Task RoamAsync(Guid iface, EngineSnapshot snap, ApScore from, ApScore to, bool manual, CancellationToken ct)
     {
         var connection = snap.Connection!;
-        Publish(snap with { IsRoaming = true, Candidate = to, Decision = $"Switching to {to.Ap.ShortBssid}…" });
+        Publish(snap with { IsRoaming = true, Candidate = to, Decision = $"Switching to {Label(to.Ap)}…" });
 
         bool attempted;
         try
@@ -304,12 +305,12 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         string change = $"{WifiText.Dbm(from.Ap.Rssi)} to {WifiText.Dbm(to.Ap.Rssi)} dBm";
         if (success)
         {
-            _log.Add(ActivityKind.Roamed, $"Switched {connection.Ssid} to {to.Ap.ShortBssid}, {WifiText.Band(to.Ap.Band)} ({change}){(manual ? ", by request" : "")}.");
+            _log.Add(ActivityKind.Roamed, $"Switched {connection.Ssid} to {Label(to.Ap)} ({change}){(manual ? ", by request" : "")}.");
         }
         else
         {
             _blocked[to.Ap.Bssid] = DateTime.Now + FailedApBlock;
-            _log.Add(ActivityKind.RoamFailed, $"Couldn't switch {connection.Ssid} to {to.Ap.ShortBssid}. Skipping it for 15 minutes.");
+            _log.Add(ActivityKind.RoamFailed, $"Couldn't switch {connection.Ssid} to {Label(to.Ap)}. Skipping it for 15 minutes.");
             if (now is null)
             {
                 // The attempt dropped us; ask Windows to reconnect to the profile normally.
@@ -396,6 +397,9 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         foreach (var key in _blocked.Where(kv => kv.Value < DateTime.Now).Select(kv => kv.Key).ToList())
             _blocked.Remove(key);
     }
+
+    /// <summary>"Living room (5 GHz)": the access point's name plus the band, since one device has several radios.</summary>
+    private string Label(AccessPoint ap) => ap.Band == WifiBand.Unknown ? _settings.NameOf(ap) : $"{_settings.NameOf(ap)} ({WifiText.Band(ap.Band)})";
 
     private static string Gain(ApScore a, ApScore b) => $"+{a.Total - b.Total:0}";
 

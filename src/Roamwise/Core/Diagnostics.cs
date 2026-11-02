@@ -44,6 +44,7 @@ public static class Diagnostics
                         sb.AppendLine($"  {(ap.Ssid.Length == 0 ? "(hidden)" : ap.Ssid),-28} {ap.Bssid}  {ap.Rssi,4} dBm  {WifiText.Band(ap.Band),-8} ch {ap.Channel,-3} " +
                                       $"{ap.WidthMHz,3} MHz  {WifiText.Generation(ap.Generation),-12} load {(ap.ChannelUtilization?.ToString() ?? "-"),3}%  " +
                                       $"sta {(ap.StationCount?.ToString() ?? "-"),3}  score {score.Total,6:0.0}  [{score.Explain()}]");
+                        sb.AppendLine($"      device {ap.DeviceKey}  name '{ap.BroadcastName}'  hardware '{ap.Hardware}'  vendor IEs {string.Join(",", ap.VendorElements)}");
                     }
                 }
                 catch (WlanException ex)

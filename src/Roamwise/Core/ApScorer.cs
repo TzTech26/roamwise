@@ -64,11 +64,11 @@ public static class ApScorer
 
     /// <summary>
     /// Other radios that share (or, on 2.4 GHz, overlap) this AP's channel and are loud enough to contend for airtime.
-    /// Virtual BSSIDs of the same radio usually differ only in the first and last octets, so those count once.
+    /// All BSSIDs of one physical device count once.
     /// </summary>
     private static int CoChannelRadios(AccessPoint ap, IReadOnlyList<AccessPoint> all)
     {
-        string Radio(AccessPoint a) => Convert.ToHexString(a.BssidBytes, 1, 4);
+        static string Radio(AccessPoint a) => a.DeviceKey;
         string self = Radio(ap);
 
         return all

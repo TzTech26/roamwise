@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -50,6 +51,7 @@ public partial class FlyoutWindow : Window
         DependencyPropertyDescriptor.FromProperty(SignalField.SelectedBssidProperty, typeof(SignalField))
             .AddValueChanged(Field, (_, _) => RenderDetail());
 
+        Field.NameOf = _settings.NameOf;
         SyncRules();
         Render(_engine.Snapshot);
     }
@@ -63,6 +65,7 @@ public partial class FlyoutWindow : Window
     public void ShowFlyout()
     {
         Render(_engine.Snapshot);
+        MaxHeight = SystemParameters.WorkArea.Height - 2 * EdgeGap;
         Opacity = 0;
         Show();
         Position();
@@ -115,6 +118,7 @@ public partial class FlyoutWindow : Window
     private void OnSettingChanged(object? sender, PropertyChangedEventArgs e) => Dispatcher.BeginInvoke(() =>
     {
         SyncRules();
+        if (e.PropertyName == nameof(AppSettings.ApNames)) Field.Refresh();
         Render(_snap);
     });
 
@@ -141,14 +145,15 @@ public partial class FlyoutWindow : Window
             SsidText.Text = conn!.Ssid;
             LinkText.Visibility = Visibility.Visible;
             LinkText.Text = ap.Band == WifiBand.Unknown
-                ? $"{conn.RxRateMbps} Mbps"
-                : $"{WifiText.Band(ap.Band)}, channel {ap.Channel}, {ap.WidthMHz} MHz, {conn.RxRateMbps} Mbps";
+                ? $"{_settings.NameOf(ap)}, {conn.RxRateMbps} Mbps"
+                : $"{_settings.NameOf(ap)}, {WifiText.Band(ap.Band)} channel {ap.Channel}, {conn.RxRateMbps} Mbps";
             RssiText.Text = WifiText.Dbm(ap.Rssi);
             QualityText.Inlines.Clear();
             QualityText.Inlines.Add(new Run("dBm, "));
             QualityText.Inlines.Add(new Run(WifiText.Quality(ap.Rssi).ToLowerInvariant()) { Foreground = QualityBrush(ap.Rssi) });
 
             Field.Snapshot = s;
+            RenderSummary(s);
             DecisionText.Text = s.Decision;
             RenderDetail();
         }
@@ -180,34 +185,126 @@ public partial class FlyoutWindow : Window
         UpdateClock();
     }
 
+    private ApScore? Picked => _snap.Siblings.FirstOrDefault(x => x.Ap.Bssid == Field.SelectedBssid);
+
     private void RenderDetail()
     {
-        var picked = _snap.Siblings.FirstOrDefault(x => x.Ap.Bssid == Field.SelectedBssid);
+        var picked = Picked;
         if (picked is null || _snap.Current is null)
         {
             DetailPanel.Visibility = Visibility.Collapsed;
+            RenamePanel.Visibility = Visibility.Collapsed;
             return;
         }
 
         var ap = picked.Ap;
         bool isCurrent = picked == _snap.Current;
         DetailPanel.Visibility = Visibility.Visible;
-        DetailTitle.Text = isCurrent ? $"{ap.Bssid}, connected" : ap.Bssid;
+        DetailName.Text = _settings.NameOf(ap);
+        DetailId.Text = ap.Band == WifiBand.Unknown
+            ? ap.Bssid
+            : $"{WifiText.Band(ap.Band)} radio {ap.Bssid}{(isCurrent ? ", connected" : "")}";
 
-        var facts = new List<string>();
-        if (ap.Band != WifiBand.Unknown) facts.Add($"{WifiText.Band(ap.Band)}, channel {ap.Channel}, {ap.WidthMHz} MHz, {WifiText.Generation(ap.Generation)}");
-        if (ap.ChannelUtilization is int u) facts.Add($"{u}% airtime in use");
-        if (ap.StationCount is int n) facts.Add($"{n} {(n == 1 ? "device" : "devices")} connected");
-        if (ap.ChannelUtilization is null && picked.CoChannelRadios > 0) facts.Add($"{picked.CoChannelRadios} other radios on this channel");
-        DetailText.Text = string.Join(", ", facts) + ".";
+        DetailFacts.Children.Clear();
+        DetailFacts.RowDefinitions.Clear();
 
-        double diff = picked.Total - _snap.Current.Total;
-        DetailScore.Text = isCurrent
-            ? $"Rated as {WifiText.Dbm((int)Math.Round(picked.Total))} dBm: {picked.Explain()}."
-            : $"Rated as {WifiText.Dbm((int)Math.Round(picked.Total))} dBm, {(diff >= 0 ? "+" : WifiText.Minus.ToString())}{Math.Abs(diff):0} vs. yours: {picked.Explain()}.";
+        var signal = new TextBlock();
+        signal.Inlines.Add(new Run($"{WifiText.Dbm(ap.Rssi)} dBm, "));
+        signal.Inlines.Add(new Run(WifiText.Quality(ap.Rssi).ToLowerInvariant()) { Foreground = QualityBrush(ap.Rssi) });
+        AddFact("Signal", signal);
+
+        if (ap.Band != WifiBand.Unknown)
+        {
+            AddFact("Channel", $"{ap.Channel} on {WifiText.Band(ap.Band)}, {ap.WidthMHz} MHz wide");
+            AddFact("Standard", WifiText.Generation(ap.Generation));
+        }
+
+        string? load = (ap.ChannelUtilization, ap.StationCount) switch
+        {
+            (int u, int n) => $"{u}% airtime used, {n} {(n == 1 ? "device" : "devices")}",
+            (int u, null) => $"{u}% airtime used",
+            (null, int n) => $"{n} {(n == 1 ? "device" : "devices")} connected",
+            _ when picked.CoChannelRadios > 0 => $"{picked.CoChannelRadios} other {(picked.CoChannelRadios == 1 ? "radio" : "radios")} on this channel",
+            _ => null,
+        };
+        if (load is not null) AddFact("Load", load);
+        if (ap.Hardware.Length > 0) AddFact("Hardware", ap.Hardware);
+
+        // Rating: the score in dBm-equivalent terms, how it compares, and what went into it.
+        var rating = new TextBlock();
+        rating.Inlines.Add(new Run($"{WifiText.Dbm((int)Math.Round(picked.Total))} dBm equivalent"));
+        if (!isCurrent)
+        {
+            double diff = picked.Total - _snap.Current.Total;
+            rating.Inlines.Add(new Run(diff >= 0.5 ? $", {diff:0} better than yours" : diff <= -0.5 ? $", {-diff:0} worse than yours" : ", same as yours")
+            {
+                Foreground = (Brush)FindResource(diff >= 0.5 ? "Rw.AccentText" : "Rw.TextMuted"),
+            });
+        }
+        rating.Inlines.Add(new LineBreak());
+        rating.Inlines.Add(new Run(picked.Explain()) { Foreground = (Brush)FindResource("Rw.TextFaint"), FontSize = 11 });
+        AddFact("Rating", rating);
 
         SwitchButton.Visibility = isCurrent ? Visibility.Collapsed : Visibility.Visible;
         SwitchButton.IsEnabled = !_snap.IsRoaming;
+    }
+
+    private void AddFact(string label, string value) => AddFact(label, new TextBlock { Text = value });
+
+    private void AddFact(string label, TextBlock value)
+    {
+        int row = DetailFacts.RowDefinitions.Count;
+        DetailFacts.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var name = new TextBlock { Text = label, Style = (Style)FindResource("Rw.Caption"), Margin = new Thickness(0, 3, 0, 3) };
+        Grid.SetRow(name, row);
+
+        value.Style = (Style)FindResource("Rw.Caption");
+        value.SetResourceReference(TextBlock.ForegroundProperty, "Rw.Text");
+        value.Margin = new Thickness(0, 3, 0, 3);
+        value.LineHeight = 17;
+        Grid.SetRow(value, row);
+        Grid.SetColumn(value, 1);
+
+        DetailFacts.Children.Add(name);
+        DetailFacts.Children.Add(value);
+    }
+
+    private void Rename_Click(object sender, RoutedEventArgs e)
+    {
+        if (Picked is not { } picked) return;
+        bool open = RenamePanel.Visibility != Visibility.Visible;
+        RenamePanel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        if (!open) return;
+        RenameBox.Text = _settings.NameOf(picked.Ap);
+        RenameBox.SelectAll();
+        RenameBox.Focus();
+    }
+
+    private void RenameBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && Picked is { } picked)
+        {
+            _settings.RenameAp(picked.Ap, RenameBox.Text);
+            RenamePanel.Visibility = Visibility.Collapsed;
+            Field.Focus();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            RenamePanel.Visibility = Visibility.Collapsed;
+            Field.Focus();
+            e.Handled = true;
+        }
+    }
+
+    private void RenderSummary(EngineSnapshot s)
+    {
+        int radios = s.Siblings.Count;
+        int devices = s.Siblings.Select(x => x.Ap.DeviceKey).Distinct().Count();
+        RadioSummary.Text = devices == radios
+            ? $"{radios} {(radios == 1 ? "access point" : "access points")}"
+            : $"{radios} radios on {devices} {(devices == 1 ? "access point" : "access points")}";
     }
 
     private void UpdateClock()

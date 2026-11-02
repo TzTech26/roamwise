@@ -111,6 +111,11 @@ public sealed class WlanClient : IDisposable
                     },
                     ChannelUtilization = parsed.ChannelUtilization,
                     StationCount = parsed.StationCount,
+                    BroadcastName = parsed.Name,
+                    Manufacturer = parsed.Manufacturer,
+                    Model = parsed.Model,
+                    DeviceMac = parsed.DeviceMac,
+                    VendorElements = parsed.VendorElements,
                 });
             }
             return result;

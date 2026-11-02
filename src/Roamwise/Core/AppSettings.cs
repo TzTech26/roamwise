@@ -4,12 +4,16 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Roamwise.Wifi;
 
 namespace Roamwise.Core;
 
 public enum NetworkScope { AllExceptExcluded, OnlyIncluded }
 
 public enum ThemePreference { System, Light, Dark }
+
+/// <summary>How the flyout orders access points.</summary>
+public enum ApSort { Band, Device, Best }
 
 /// <summary>Every user-facing setting. Observable so the settings window can bind straight to it.</summary>
 public sealed class AppSettings : INotifyPropertyChanged
@@ -35,6 +39,7 @@ public sealed class AppSettings : INotifyPropertyChanged
 
     private NetworkScope _scope = NetworkScope.AllExceptExcluded;
     private bool _lowLatencyMode;
+    private ApSort _sort = ApSort.Band;
 
     // General
     public bool Enabled { get => _enabled; set => Set(ref _enabled, value); }
@@ -65,6 +70,23 @@ public sealed class AppSettings : INotifyPropertyChanged
 
     // Extra tweaks
     public bool LowLatencyMode { get => _lowLatencyMode; set => Set(ref _lowLatencyMode, value); }
+
+    // Flyout
+    public ApSort Sort { get => _sort; set => Set(ref _sort, value); }
+
+    /// <summary>Names the user gave access points, keyed by <see cref="AccessPoint.DeviceKey"/>.</summary>
+    public Dictionary<string, string> ApNames { get; set; } = new();
+
+    public string NameOf(AccessPoint ap) => ApNames.TryGetValue(ap.DeviceKey, out var n) ? n : ap.DefaultName;
+
+    /// <summary>Sets or clears (empty name) a custom name for every radio of this access point.</summary>
+    public void RenameAp(AccessPoint ap, string? name)
+    {
+        name = name?.Trim();
+        if (string.IsNullOrEmpty(name) || name == ap.DefaultName) ApNames.Remove(ap.DeviceKey);
+        else ApNames[ap.DeviceKey] = name;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ApNames)));
+    }
 
     public bool AppliesTo(string ssid)
     {

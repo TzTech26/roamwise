@@ -22,11 +22,31 @@ public sealed record AccessPoint
     public int? ChannelUtilization { get; init; }
     /// <summary>Devices associated to the AP as reported by the AP (BSS Load element).</summary>
     public int? StationCount { get; init; }
+    /// <summary>The name the AP announces about itself (vendor name tags or WPS device name), when it does.</summary>
+    public string? BroadcastName { get; init; }
+    public string? Manufacturer { get; init; }
+    public string? Model { get; init; }
+    /// <summary>The device's own MAC when the AP announces it (UniFi does); matches what the vendor's app shows.</summary>
+    public byte[]? DeviceMac { get; init; }
+    /// <summary>Raw vendor-specific elements as "OUI:hex", for diagnostics.</summary>
+    public IReadOnlyList<string> VendorElements { get; init; } = [];
 
     public string Bssid => Mac.Format(BssidBytes);
 
     /// <summary>Last three octets, enough to tell nearby APs apart.</summary>
     public string ShortBssid => Mac.Short(BssidBytes);
+
+    /// <summary>
+    /// Identifies the physical access point. When the AP doesn't announce its device MAC, we rely on its radios
+    /// (2.4, 5 and 6 GHz, plus extra SSIDs) sharing the middle four octets of their BSSIDs.
+    /// </summary>
+    public string DeviceKey => DeviceMac is { } m ? Convert.ToHexString(m) : Convert.ToHexString(BssidBytes, 1, 4);
+
+    /// <summary>The announced name, or a short ID from the octets every radio of the device shares, e.g. "AP 27:63".</summary>
+    public string DefaultName => BroadcastName
+        ?? (DeviceMac is { } m ? $"AP {m[4]:x2}:{m[5]:x2}" : $"AP {BssidBytes[3]:x2}:{BssidBytes[4]:x2}");
+
+    public string Hardware => string.Join(' ', new[] { Manufacturer, Model }.Where(s => !string.IsNullOrEmpty(s)));
 }
 
 public sealed record WifiConnection
