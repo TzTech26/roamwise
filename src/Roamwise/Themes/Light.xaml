@@ -1,0 +1,22 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <SolidColorBrush x:Key="Rw.FlyoutFallback" Color="#F3F4F6" />
+    <SolidColorBrush x:Key="Rw.FlyoutTint" Color="#B8F3F4F6" />
+    <SolidColorBrush x:Key="Rw.Footer" Color="#0D000000" />
+    <SolidColorBrush x:Key="Rw.Surface" Color="#B3FFFFFF" />
+    <SolidColorBrush x:Key="Rw.SurfaceHover" Color="#80F9F9F9" />
+    <SolidColorBrush x:Key="Rw.SurfacePressed" Color="#4DF9F9F9" />
+    <SolidColorBrush x:Key="Rw.CardFill" Color="#B3FFFFFF" />
+    <SolidColorBrush x:Key="Rw.CardStroke" Color="#0F000000" />
+    <SolidColorBrush x:Key="Rw.Line" Color="#14000000" />
+    <SolidColorBrush x:Key="Rw.ControlStroke" Color="#1F000000" />
+    <SolidColorBrush x:Key="Rw.Text" Color="#1B1E23" />
+    <SolidColorBrush x:Key="Rw.TextMuted" Color="#5C636D" />
+    <SolidColorBrush x:Key="Rw.TextFaint" Color="#8A919B" />
+    <SolidColorBrush x:Key="Rw.Track" Color="#14000000" />
+    <SolidColorBrush x:Key="Rw.BarNeutral" Color="#9198A2" />
+    <SolidColorBrush x:Key="Rw.Strong" Color="#1F8F68" />
+    <SolidColorBrush x:Key="Rw.Fair" Color="#A97814" />
+    <SolidColorBrush x:Key="Rw.Weak" Color="#BF4632" />
+    <SolidColorBrush x:Key="Rw.KnobOff" Color="#5C636D" />
+</ResourceDictionary>
