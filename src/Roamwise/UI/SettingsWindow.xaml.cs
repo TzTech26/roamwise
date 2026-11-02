@@ -18,16 +18,18 @@ public partial class SettingsWindow : Window
     private readonly ActivityLog _log;
     private readonly IRoamEngine _engine;
     private readonly ThemeService _theme;
+    private readonly UnifiController _unifi;
 
     public sealed record ActivityRow(string Glyph, Brush GlyphBrush, string When, string Message);
 
-    public SettingsWindow(AppSettings settings, ActivityLog log, IRoamEngine engine, ThemeService theme)
+    public SettingsWindow(AppSettings settings, ActivityLog log, IRoamEngine engine, ThemeService theme, UnifiController unifi)
     {
         InitializeComponent();
         _settings = settings;
         _log = log;
         _engine = engine;
         _theme = theme;
+        _unifi = unifi;
         DataContext = settings;
 
         var version = Assembly.GetExecutingAssembly().GetName().Version;
@@ -48,6 +50,9 @@ public partial class SettingsWindow : Window
         UpdateSummary();
         UpdateNetworks();
         UpdateActivity();
+        UpdateNames();
+        UnifiHostBox.TextChanged += (_, _) => UnifiHostHint.Visibility = UnifiHostBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        UnifiHostHint.Visibility = UnifiHostBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     public void ShowPage(string page)
@@ -57,6 +62,7 @@ public partial class SettingsWindow : Window
             "networks" => NavNetworks,
             "activity" => NavActivity,
             "roaming" => NavRoaming,
+            "names" => NavNames,
             _ => NavGeneral,
         };
         nav.IsChecked = true;
@@ -79,6 +85,7 @@ public partial class SettingsWindow : Window
     {
         UpdateSummary();
         if (e.PropertyName == nameof(AppSettings.Scope)) UpdateNetworks();
+        if (e.PropertyName is nameof(AppSettings.ApNames) or nameof(AppSettings.UnifiApiKeyProtected)) UpdateNames();
     });
 
     private void OnLogChanged() => Dispatcher.BeginInvoke(UpdateActivity);
@@ -90,6 +97,7 @@ public partial class SettingsWindow : Window
         PageRoaming.Visibility = Show(NavRoaming);
         PageRanking.Visibility = Show(NavRanking);
         PageNetworks.Visibility = Show(NavNetworks);
+        PageNames.Visibility = Show(NavNames);
         PageActivity.Visibility = Show(NavActivity);
         PageAbout.Visibility = Show(NavAbout);
         Scroller.ScrollToTop();
@@ -201,6 +209,68 @@ public partial class SettingsWindow : Window
     }
 
     private void ClearActivity_Click(object sender, RoutedEventArgs e) => _log.Clear();
+
+    public sealed record NameRow(string Key, string Name, string Detail);
+
+    private void UpdateNames()
+    {
+        var rows = _settings.ApNames
+            .Select(kv => new NameRow(kv.Key, kv.Value, kv.Key.Length == 12
+                ? $"Device {string.Join(':', Enumerable.Range(0, 6).Select(i => kv.Key.Substring(i * 2, 2).ToLowerInvariant()))}"
+                : $"Radios with BSSIDs ??:{string.Join(':', Enumerable.Range(0, 4).Select(i => kv.Key.Substring(i * 2, 2).ToLowerInvariant()))}:??"))
+            .OrderBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+        CustomNames.ItemsSource = rows;
+        CustomNamesEmpty.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        bool saved = _settings.UnifiApiKeyProtected.Length > 0;
+        UnifiKeyHint.Text = saved ? "Saved. Paste a new key to replace it." : "Paste your API key";
+        UnifiKeyHint.Visibility = UnifiKeyBox.Password.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        UnifiForget.Visibility = saved ? Visibility.Visible : Visibility.Collapsed;
+        if (UnifiStatus.Text.Length == 0)
+            UnifiStatus.Text = _settings.ControllerSyncedAt is DateTime t && saved
+                ? $"Connected. {_settings.ControllerDevices.Values.Distinct().Count()} devices, last updated {t:t}."
+                : "Not connected.";
+    }
+
+    private void UnifiKeyBox_PasswordChanged(object sender, RoutedEventArgs e) =>
+        UnifiKeyHint.Visibility = UnifiKeyBox.Password.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+    private async void UnifiConnect_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.UnifiHost = UnifiHostBox.Text;
+        if (UnifiKeyBox.Password.Length > 0)
+        {
+            _settings.UnifiApiKeyProtected = UnifiController.Protect(UnifiKeyBox.Password);
+            UnifiKeyBox.Clear();
+        }
+
+        UnifiConnect.IsEnabled = false;
+        UnifiStatus.Text = "Connecting…";
+        var (ok, message) = await _unifi.SyncAsync();
+        UnifiStatus.Text = message;
+        UnifiStatus.SetResourceReference(TextBlock.ForegroundProperty, ok ? "Rw.TextMuted" : "Rw.Weak");
+        UnifiConnect.IsEnabled = true;
+        UpdateNames();
+        _engine.CheckNow();
+    }
+
+    private void UnifiForget_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.UnifiApiKeyProtected = "";
+        _settings.SetControllerDevices([]);
+        _settings.ControllerSyncedAt = null;
+        UnifiStatus.Text = "Disconnected. UniFi names are no longer used.";
+        UnifiStatus.SetResourceReference(TextBlock.ForegroundProperty, "Rw.TextMuted");
+        UpdateNames();
+    }
+
+    private void ResetName_Click(object sender, RoutedEventArgs e)
+    {
+        string key = (string)((Button)sender).Tag;
+        _settings.ForgetName(key);
+        UpdateNames();
+    }
 
     private void ResetRules_Click(object sender, RoutedEventArgs e)
     {

@@ -179,14 +179,14 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         }
 
         _lastProblem = null;
-        var siblings = SiblingsOf(connection, all, adapter.Id);
+        var siblings = ReportedRadios.WithReported(SiblingsOf(connection, all, adapter.Id), all, connection.Ssid);
         var scored = siblings.Select(ap => ApScorer.Score(ap, _settings, all)).OrderByDescending(s => s.Total).ToList();
         var current = scored.First(s => Mac.Equal(s.Ap.BssidBytes, connection.BssidBytes));
         bool managed = _settings.AppliesTo(connection.Ssid);
 
         PruneBlocked();
         var best = scored
-            .Where(s => s != current && s.Ap.Rssi >= _settings.MinCandidateDbm && !_blocked.ContainsKey(s.Ap.Bssid))
+            .Where(s => s != current && s.Ap.HeardDirectly && s.Ap.Rssi >= _settings.MinCandidateDbm && !_blocked.ContainsKey(s.Ap.Bssid))
             .MaxBy(s => s.Total);
 
         var snapshot = new EngineSnapshot
@@ -223,7 +223,8 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
     {
         roam = false;
         string ssid = snap.Connection!.Ssid;
-        int others = snap.Siblings.Count - 1;
+        int heard = snap.Siblings.Count(s => s.Ap.HeardDirectly);
+        int others = heard - 1;
 
         if (others == 0)
         {
@@ -261,7 +262,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         {
             ResetStreak();
             return gain <= 0
-                ? $"You're on the best of {snap.Siblings.Count} access points for {ssid}."
+                ? $"You're on the best of {heard} access points for {ssid}."
                 : $"{Label(best.Ap)} is only {Gain(best, current)} better. Switching needs +{_settings.MinImprovementDb}.";
         }
 

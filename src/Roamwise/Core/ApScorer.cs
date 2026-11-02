@@ -7,6 +7,7 @@ public sealed record ApScore(AccessPoint Ap, double Total, double BandBonus, dou
 {
     public string Explain()
     {
+        if (!Ap.HeardDirectly) return "signal unknown";
         var parts = new List<string> { $"signal {WifiText.Dbm(Ap.Rssi)}" };
         if (BandBonus > 0.05) parts.Add($"band +{BandBonus:0.#}");
         if (BandBonus < -0.05) parts.Add($"band {WifiText.Minus}{-BandBonus:0.#}");
@@ -29,6 +30,9 @@ public static class ApScorer
 
     public static ApScore Score(AccessPoint ap, AppSettings s, IReadOnlyList<AccessPoint> everything)
     {
+        // Known only from a neighbor report: no signal reading, so no fair score.
+        if (!ap.HeardDirectly) return new ApScore(ap, double.NaN, 0, 0, 0, 0);
+
         double fade = Math.Clamp((ap.Rssi - FadeEndDbm) / (FullBonusDbm - FadeEndDbm), 0, 1);
 
         double band = ap.Band switch

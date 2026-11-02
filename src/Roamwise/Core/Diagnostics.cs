@@ -45,6 +45,8 @@ public static class Diagnostics
                                       $"{ap.WidthMHz,3} MHz  {WifiText.Generation(ap.Generation),-12} load {(ap.ChannelUtilization?.ToString() ?? "-"),3}%  " +
                                       $"sta {(ap.StationCount?.ToString() ?? "-"),3}  score {score.Total,6:0.0}  [{score.Explain()}]");
                         sb.AppendLine($"      device {ap.DeviceKey}  name '{ap.BroadcastName}'  hardware '{ap.Hardware}'  vendor IEs {string.Join(",", ap.VendorElements)}");
+                        foreach (var n in ap.Neighbors)
+                            sb.AppendLine($"      neighbor {Mac.Format(n.Bssid)}  {WifiText.Band(n.Band)} ch {n.Channel}  sameSsid={n.SameSsid} coLocated={n.CoLocated} shortSsid={n.ShortSsid:x8}");
                     }
                 }
                 catch (WlanException ex)

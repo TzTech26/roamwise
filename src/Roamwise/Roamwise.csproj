@@ -34,6 +34,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Resource Include="Assets\Roamwise.ico" />
   </ItemGroup>
 

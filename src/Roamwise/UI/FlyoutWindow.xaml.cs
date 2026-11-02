@@ -208,14 +208,24 @@ public partial class FlyoutWindow : Window
         DetailFacts.Children.Clear();
         DetailFacts.RowDefinitions.Clear();
 
-        var signal = new TextBlock();
-        signal.Inlines.Add(new Run($"{WifiText.Dbm(ap.Rssi)} dBm, "));
-        signal.Inlines.Add(new Run(WifiText.Quality(ap.Rssi).ToLowerInvariant()) { Foreground = QualityBrush(ap.Rssi) });
-        AddFact("Signal", signal);
+        if (ap.HeardDirectly)
+        {
+            var signal = new TextBlock();
+            signal.Inlines.Add(new Run($"{WifiText.Dbm(ap.Rssi)} dBm, "));
+            signal.Inlines.Add(new Run(WifiText.Quality(ap.Rssi).ToLowerInvariant()) { Foreground = QualityBrush(ap.Rssi) });
+            AddFact("Signal", signal);
+        }
+        else
+        {
+            AddFact("Signal", "Unknown. Your PC can't hear this radio right now; its access point lists it on another band. " +
+                              "6 GHz reaches less far, so move closer to use it.");
+        }
 
         if (ap.Band != WifiBand.Unknown)
         {
-            AddFact("Channel", $"{ap.Channel} on {WifiText.Band(ap.Band)}, {ap.WidthMHz} MHz wide");
+            AddFact("Channel", ap.WidthMHz > 0
+                ? $"{ap.Channel} on {WifiText.Band(ap.Band)}, {ap.WidthMHz} MHz wide"
+                : $"{ap.Channel} on {WifiText.Band(ap.Band)}");
             AddFact("Standard", WifiText.Generation(ap.Generation));
         }
 
@@ -228,7 +238,15 @@ public partial class FlyoutWindow : Window
             _ => null,
         };
         if (load is not null) AddFact("Load", load);
-        if (ap.Hardware.Length > 0) AddFact("Hardware", ap.Hardware);
+        if (_settings.HardwareOf(ap) is { Length: > 0 } hardware) AddFact("Hardware", hardware);
+
+        SwitchButton.Visibility = isCurrent ? Visibility.Collapsed : Visibility.Visible;
+        SwitchButton.IsEnabled = !_snap.IsRoaming;
+        if (!ap.HeardDirectly)
+        {
+            AddFact("Rating", "Not rated until your PC can measure its signal.");
+            return;
+        }
 
         // Rating: the score in dBm-equivalent terms, how it compares, and what went into it.
         var rating = new TextBlock();
@@ -244,9 +262,6 @@ public partial class FlyoutWindow : Window
         rating.Inlines.Add(new LineBreak());
         rating.Inlines.Add(new Run(picked.Explain()) { Foreground = (Brush)FindResource("Rw.TextFaint"), FontSize = 11 });
         AddFact("Rating", rating);
-
-        SwitchButton.Visibility = isCurrent ? Visibility.Collapsed : Visibility.Visible;
-        SwitchButton.IsEnabled = !_snap.IsRoaming;
     }
 
     private void AddFact(string label, string value) => AddFact(label, new TextBlock { Text = value });

@@ -99,7 +99,9 @@ public sealed class SignalField : FrameworkElement
     private static int BandOrder(WifiBand b) => b switch { WifiBand.Ghz6 => 0, WifiBand.Ghz5 => 1, WifiBand.Ghz24 => 2, _ => 3 };
 
     private static string Channel(AccessPoint ap) =>
-        ap.Band == WifiBand.Unknown ? "" : $"ch {ap.Channel}, {ap.WidthMHz} MHz";
+        ap.Band == WifiBand.Unknown ? ""
+        : !ap.HeardDirectly ? $"ch {ap.Channel}, out of earshot"
+        : $"ch {ap.Channel}, {ap.WidthMHz} MHz";
 
     private List<Item> BuildLayout()
     {
@@ -145,7 +147,8 @@ public sealed class SignalField : FrameworkElement
                 foreach (var s in shown)
                 {
                     items.Add(new RowItem(y, s, NameOf(s.Ap),
-                        s.Ap.Band == WifiBand.Unknown ? "" : $"{WifiText.Band(s.Ap.Band)}, ch {s.Ap.Channel}"));
+                        s.Ap.Band == WifiBand.Unknown ? ""
+                        : $"{WifiText.Band(s.Ap.Band)}, ch {s.Ap.Channel}{(s.Ap.HeardDirectly ? "" : ", out of earshot")}"));
                     y += RowHeight;
                 }
                 break;
@@ -239,7 +242,9 @@ public sealed class SignalField : FrameworkElement
 
             // Line 1: name, channel, tag, value.
             double textMid = row.Top + 12;
-            var value = Text(WifiText.Dbm(ap.Rssi), 12, isCurrent ? TextBrush : MutedBrush, dpi, bold: isCurrent);
+            var value = ap.HeardDirectly
+                ? Text(WifiText.Dbm(ap.Rssi), 12, isCurrent ? TextBrush : MutedBrush, dpi, bold: isCurrent)
+                : Text("—", 12, FaintBrush, dpi);
             dc.DrawText(value, new Point(ActualWidth - value.Width, textMid - value.Height / 2));
             double right = ActualWidth - ValueWidth - 6;
 
@@ -274,6 +279,14 @@ public sealed class SignalField : FrameworkElement
             _shown[ap.Bssid] = shownValue;
 
             double barH = isCurrent ? 6 : 4;
+            if (!ap.HeardDirectly)
+            {
+                // No reading: an empty dashed track instead of a bar.
+                var dashed = new Pen(FaintBrush, 1) { DashStyle = new DashStyle([3, 3], 0) };
+                dc.DrawLine(dashed, new Point(0, barMid), new Point(ActualWidth, barMid));
+                continue;
+            }
+
             dc.DrawRoundedRectangle(TrackBrush, null, new Rect(0, barMid - barH / 2, ActualWidth, barH), barH / 2, barH / 2);
             var fill = isCurrent ? AccentBrush : isCandidate ? AccentSoftBrush : NeutralBrush;
             double fillW = Math.Max(barH, X(shownValue));

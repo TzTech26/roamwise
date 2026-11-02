@@ -20,6 +20,7 @@ public partial class App : Application
     private TrayIcon _tray = null!;
     private FlyoutWindow _flyout = null!;
     private SettingsWindow? _settingsWindow;
+    private UnifiController _unifi = null!;
 
     private AppSettings Settings => _store.Settings;
 
@@ -94,6 +95,16 @@ public partial class App : Application
             }) { IsBackground = true }.Start();
         }
 
+        _unifi = new UnifiController(Settings, _log);
+        if (!demo)
+        {
+            // Keep UniFi names fresh: on start, then every 30 minutes.
+            _ = _unifi.RefreshIfStaleAsync(TimeSpan.FromMinutes(30));
+            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(30) };
+            timer.Tick += (_, _) => _ = _unifi.RefreshIfStaleAsync(TimeSpan.FromMinutes(25));
+            timer.Start();
+        }
+
         _engine.Start();
         if (!background) _flyout.ShowFlyout();
         if (demo && e.Args.Contains("--select")) _flyout.SelectCandidate();
@@ -137,7 +148,7 @@ public partial class App : Application
     {
         if (_settingsWindow is null)
         {
-            _settingsWindow = new SettingsWindow(Settings, _log, _engine, _theme);
+            _settingsWindow = new SettingsWindow(Settings, _log, _engine, _theme, _unifi);
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         }
         _settingsWindow.ShowPage(page);

@@ -12,6 +12,9 @@ public enum NetworkScope { AllExceptExcluded, OnlyIncluded }
 
 public enum ThemePreference { System, Light, Dark }
 
+/// <summary>An access point as the UniFi controller knows it.</summary>
+public sealed record ControllerDevice(string Mac, string Name, string? Model);
+
 /// <summary>How the flyout orders access points.</summary>
 public enum ApSort { Band, Device, Best }
 
@@ -40,6 +43,8 @@ public sealed class AppSettings : INotifyPropertyChanged
     private NetworkScope _scope = NetworkScope.AllExceptExcluded;
     private bool _lowLatencyMode;
     private ApSort _sort = ApSort.Band;
+    private string _unifiHost = "";
+    private string _unifiKey = "";
 
     // General
     public bool Enabled { get => _enabled; set => Set(ref _enabled, value); }
@@ -77,7 +82,46 @@ public sealed class AppSettings : INotifyPropertyChanged
     /// <summary>Names the user gave access points, keyed by <see cref="AccessPoint.DeviceKey"/>.</summary>
     public Dictionary<string, string> ApNames { get; set; } = new();
 
-    public string NameOf(AccessPoint ap) => ApNames.TryGetValue(ap.DeviceKey, out var n) ? n : ap.DefaultName;
+    public void ForgetName(string deviceKey)
+    {
+        if (ApNames.Remove(deviceKey)) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ApNames)));
+    }
+
+    // UniFi controller (names and models for UniFi access points)
+    public string UnifiHost { get => _unifiHost; set => Set(ref _unifiHost, value?.Trim() ?? ""); }
+    /// <summary>The UniFi API key, encrypted for this Windows user (DPAPI). Never stored in plain text.</summary>
+    public string UnifiApiKeyProtected { get => _unifiKey; set => Set(ref _unifiKey, value ?? ""); }
+    /// <summary>Last device list fetched from the controller, keyed by <see cref="AccessPoint.DeviceKey"/> forms.</summary>
+    public Dictionary<string, ControllerDevice> ControllerDevices { get; set; } = new();
+    public DateTime? ControllerSyncedAt { get; set; }
+
+    /// <summary>Your own name, then the controller's, then whatever the AP announces, then a short ID.</summary>
+    public string NameOf(AccessPoint ap) =>
+        ApNames.TryGetValue(ap.DeviceKey, out var n) ? n
+        : Controller(ap)?.Name is { Length: > 0 } c ? c
+        : ap.DefaultName;
+
+    public string HardwareOf(AccessPoint ap) =>
+        Controller(ap)?.Model is { Length: > 0 } model ? $"{ap.Manufacturer ?? "Ubiquiti"} {model}" : ap.Hardware;
+
+    private ControllerDevice? Controller(AccessPoint ap) =>
+        ControllerDevices.TryGetValue(ap.DeviceKey, out var d) ? d
+        : ControllerDevices.TryGetValue(Convert.ToHexString(ap.BssidBytes, 1, 4), out d) ? d
+        : null;
+
+    public void SetControllerDevices(IEnumerable<ControllerDevice> devices)
+    {
+        ControllerDevices = new();
+        foreach (var d in devices)
+        {
+            byte[] mac = Convert.FromHexString(d.Mac.Replace(":", "").Replace("-", ""));
+            if (mac.Length != 6) continue;
+            ControllerDevices[Convert.ToHexString(mac)] = d;           // matches the device MAC UniFi announces
+            ControllerDevices.TryAdd(Convert.ToHexString(mac, 1, 4), d); // fallback: radios sharing the middle octets
+        }
+        ControllerSyncedAt = DateTime.Now;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ApNames)));
+    }
 
     /// <summary>Sets or clears (empty name) a custom name for every radio of this access point.</summary>
     public void RenameAp(AccessPoint ap, string? name)

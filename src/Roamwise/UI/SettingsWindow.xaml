@@ -34,6 +34,7 @@
             <RadioButton x:Name="NavRoaming" Style="{StaticResource Rw.NavItem}" GroupName="Nav" Tag="&#xE701;" Content="When to switch" Checked="Nav_Checked" />
             <RadioButton x:Name="NavRanking" Style="{StaticResource Rw.NavItem}" GroupName="Nav" Tag="&#xE9D2;" Content="How APs are ranked" Checked="Nav_Checked" />
             <RadioButton x:Name="NavNetworks" Style="{StaticResource Rw.NavItem}" GroupName="Nav" Tag="&#xE8FD;" Content="Networks" Checked="Nav_Checked" />
+            <RadioButton x:Name="NavNames" Style="{StaticResource Rw.NavItem}" GroupName="Nav" Tag="&#xE8EC;" Content="Access point names" Checked="Nav_Checked" />
             <RadioButton x:Name="NavActivity" Style="{StaticResource Rw.NavItem}" GroupName="Nav" Tag="&#xE81C;" Content="Activity" Checked="Nav_Checked" />
             <RadioButton x:Name="NavAbout" Style="{StaticResource Rw.NavItem}" GroupName="Nav" Tag="&#xE946;" Content="About" Checked="Nav_Checked" />
         </StackPanel>
@@ -289,6 +290,77 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </StackPanel>
+                </StackPanel>
+
+                <!-- Access point names -->
+                <StackPanel x:Name="PageNames" Visibility="Collapsed">
+                    <TextBlock Text="Access point names" Style="{StaticResource Rw.PageTitle}" />
+                    <TextBlock Style="{StaticResource Rw.Body}" Foreground="{DynamicResource Rw.TextMuted}" Margin="0,12,0,0" MaxWidth="640" HorizontalAlignment="Left"
+                               Text="Most access points don't broadcast their name. Roamwise shows a name when it can find one: yours first, then your UniFi controller's, then whatever the access point announces. Otherwise it shows the end of the device's MAC address." />
+
+                    <TextBlock Text="UniFi controller" Style="{StaticResource Rw.GroupHeading}" />
+                    <Border Style="{StaticResource Rw.Card}">
+                        <StackPanel>
+                            <ui:SettingRow Header="Controller address" Description="Your UniFi console or Network server, for example 192.168.1.1.">
+                                <Grid Width="260">
+                                    <TextBox x:Name="UnifiHostBox" MinHeight="32" VerticalContentAlignment="Center"
+                                             Text="{Binding UnifiHost, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="Controller address" />
+                                    <TextBlock x:Name="UnifiHostHint" Text="192.168.1.1" IsHitTestVisible="False" Style="{StaticResource Rw.Caption}"
+                                               FontSize="14" VerticalAlignment="Center" Margin="12,0,0,0" />
+                                </Grid>
+                            </ui:SettingRow>
+                            <Border Style="{StaticResource Rw.Divider}" />
+                            <ui:SettingRow Header="API key"
+                                           Description="In UniFi Network, open Settings, then Control Plane, then Integrations, and create an API key. Roamwise only reads device names, and keeps the key encrypted for your Windows account.">
+                                <Grid Width="260">
+                                    <PasswordBox x:Name="UnifiKeyBox" MinHeight="32" VerticalContentAlignment="Center" PasswordChanged="UnifiKeyBox_PasswordChanged"
+                                                 AutomationProperties.Name="API key" />
+                                    <TextBlock x:Name="UnifiKeyHint" IsHitTestVisible="False" Style="{StaticResource Rw.Caption}"
+                                               FontSize="14" VerticalAlignment="Center" Margin="12,0,0,0" />
+                                </Grid>
+                            </ui:SettingRow>
+                            <Border Style="{StaticResource Rw.Divider}" />
+                            <Grid Margin="16,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="UnifiStatus" Style="{StaticResource Rw.Caption}" FontSize="13" VerticalAlignment="Center" Margin="0,0,16,0" />
+                                <Button x:Name="UnifiForget" Grid.Column="1" Style="{StaticResource Rw.Button}" Content="Disconnect" Margin="0,0,8,0" Click="UnifiForget_Click" />
+                                <Button x:Name="UnifiConnect" Grid.Column="2" Style="{StaticResource Rw.AccentButton}" Content="Connect" MinWidth="96" Click="UnifiConnect_Click" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Names you've given" Style="{StaticResource Rw.GroupHeading}" />
+                    <Border Style="{StaticResource Rw.Card}">
+                        <StackPanel>
+                            <ItemsControl x:Name="CustomNames">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel>
+                                            <Grid Margin="16,8,8,8" MinHeight="32">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Name}" Style="{StaticResource Rw.Body}" />
+                                                    <TextBlock Text="{Binding Detail}" Style="{StaticResource Rw.Caption}" />
+                                                </StackPanel>
+                                                <Button Grid.Column="1" Style="{StaticResource Rw.Button}" Content="Use default" Tag="{Binding Key}"
+                                                        Click="ResetName_Click" />
+                                            </Grid>
+                                            <Border Style="{StaticResource Rw.Divider}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock x:Name="CustomNamesEmpty" Style="{StaticResource Rw.Caption}" FontSize="13" Margin="16,14"
+                                       Text="You haven't renamed any access points. Select one in the Roamwise panel and use the pencil button." />
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
 
                 <!-- Activity -->

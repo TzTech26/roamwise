@@ -116,6 +116,7 @@ public sealed class WlanClient : IDisposable
                     Model = parsed.Model,
                     DeviceMac = parsed.DeviceMac,
                     VendorElements = parsed.VendorElements,
+                    Neighbors = parsed.Neighbors,
                 });
             }
             return result;

@@ -30,6 +30,13 @@ public sealed record AccessPoint
     public byte[]? DeviceMac { get; init; }
     /// <summary>Raw vendor-specific elements as "OUI:hex", for diagnostics.</summary>
     public IReadOnlyList<string> VendorElements { get; init; } = [];
+    /// <summary>Other radios this AP advertises (mostly its 6 GHz siblings).</summary>
+    public IReadOnlyList<ReportedNeighbor> Neighbors { get; init; } = [];
+    /// <summary>
+    /// False for radios we only know about from another AP's neighbor report. Their signal is unknown,
+    /// so they're shown but never chosen automatically.
+    /// </summary>
+    public bool HeardDirectly { get; init; } = true;
 
     public string Bssid => Mac.Format(BssidBytes);
 
@@ -48,6 +55,8 @@ public sealed record AccessPoint
 
     public string Hardware => string.Join(' ', new[] { Manufacturer, Model }.Where(s => !string.IsNullOrEmpty(s)));
 }
+
+public sealed record ReportedNeighbor(byte[] Bssid, WifiBand Band, int Channel, bool SameSsid, uint? ShortSsid, bool CoLocated);
 
 public sealed record WifiConnection
 {

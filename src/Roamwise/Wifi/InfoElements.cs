@@ -35,8 +35,11 @@ internal static class InfoElements
 
     private const string UbiquitiOui = "00156D";
 
+    private const byte ReducedNeighborReport = 201;
+
     public readonly record struct Parsed(int WidthMHz, int? ChannelUtilization, int? StationCount,
-        string? Name, string? Manufacturer, string? Model, byte[]? DeviceMac, IReadOnlyList<string> VendorElements);
+        string? Name, string? Manufacturer, string? Model, byte[]? DeviceMac, IReadOnlyList<string> VendorElements,
+        IReadOnlyList<ReportedNeighbor> Neighbors);
 
     public static Parsed Parse(ReadOnlySpan<byte> ies)
     {
@@ -47,6 +50,7 @@ internal static class InfoElements
         string? ccxName = null, vendorName = null, wpsName = null, manufacturer = null, model = null;
         byte[]? deviceMac = null;
         var ouis = new List<string>();
+        var neighbors = new List<ReportedNeighbor>();
 
         int i = 0;
         while (i + 2 <= ies.Length)
@@ -86,6 +90,10 @@ internal static class InfoElements
                     ehtWidth = ParseEhtWidth(data[1..]);
                     break;
 
+                case ReducedNeighborReport:
+                    ParseNeighborReport(data, neighbors);
+                    break;
+
                 // Cisco Aironet/CCX: the AP name sits at offset 10, up to 16 bytes, null-padded.
                 case CiscoCcx when len >= 26:
                     ccxName = Ascii(data.Slice(10, 16));
@@ -117,7 +125,57 @@ internal static class InfoElements
         if (wpsName is not null && (IsGeneric(wpsName) || string.Equals(wpsName, manufacturer, StringComparison.OrdinalIgnoreCase)))
             wpsName = null;
         string? name = ccxName ?? vendorName ?? wpsName;
-        return new Parsed(width, utilization, stations, name, manufacturer, model, deviceMac, ouis);
+        return new Parsed(width, utilization, stations, name, manufacturer, model, deviceMac, ouis, neighbors);
+    }
+
+    /// <summary>
+    /// Reduced Neighbor Report: how 2.4/5 GHz radios advertise their 6 GHz siblings. A PC often hears the
+    /// 6 GHz radio only through this, because 6 GHz has shorter range and isn't actively scanned.
+    /// Each entry is a 2-byte TBTT header, operating class, channel, then one TBTT info field per BSS.
+    /// </summary>
+    private static void ParseNeighborReport(ReadOnlySpan<byte> d, List<ReportedNeighbor> into)
+    {
+        int i = 0;
+        while (i + 4 <= d.Length)
+        {
+            int count = ((d[i] >> 4) & 0x0F) + 1;
+            int infoLen = d[i + 1];
+            int opClass = d[i + 2];
+            int channel = d[i + 3];
+            i += 4;
+            if (infoLen == 0 || i + count * infoLen > d.Length) break;
+
+            var band = opClass switch
+            {
+                >= 81 and <= 84 => WifiBand.Ghz24,
+                >= 115 and <= 130 => WifiBand.Ghz5,
+                >= 131 and <= 137 => WifiBand.Ghz6,
+                _ => WifiBand.Unknown,
+            };
+
+            for (int n = 0; n < count; n++, i += infoLen)
+            {
+                var info = d.Slice(i, infoLen);
+                if (infoLen < 7) continue; // no BSSID in this layout
+                uint? shortSsid = infoLen >= 11 ? BitConverter.ToUInt32(info.Slice(7, 4)) : null;
+                int? paramsAt = infoLen switch { 8 or 9 => 7, >= 12 => 11, _ => null };
+                byte bssParams = paramsAt is int p ? info[p] : (byte)0;
+                into.Add(new ReportedNeighbor(info.Slice(1, 6).ToArray(), band, channel,
+                    SameSsid: (bssParams & 0x02) != 0, ShortSsid: shortSsid, CoLocated: (bssParams & 0x40) != 0));
+            }
+        }
+    }
+
+    /// <summary>The "short SSID" used in neighbor reports: the IEEE CRC-32 of the SSID bytes.</summary>
+    public static uint ShortSsid(string ssid)
+    {
+        uint crc = 0xFFFFFFFF;
+        foreach (byte b in System.Text.Encoding.UTF8.GetBytes(ssid))
+        {
+            crc ^= b;
+            for (int k = 0; k < 8; k++) crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320 : crc >> 1;
+        }
+        return ~crc;
     }
 
     // UniFi beacons carry the device's base MAC (the one shown in the UniFi app) as type 0x81, length 6.
