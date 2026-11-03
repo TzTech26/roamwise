@@ -173,5 +173,5 @@ jobs:
             Roamwise-*.AppImage
             SHA256SUMS.txt
           # The code signing policy has to be mentioned where people download signed builds.
-          body: ${{ needs.sign.outputs.signed == 'true' && 'Windows builds: free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). See the [code signing policy](https://github.com/TzTech26/roamwise#code-signing-policy).' || '' }}
+          body: "${{ needs.sign.outputs.signed == 'true' && 'Windows builds: free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). See the [code signing policy](https://github.com/TzTech26/roamwise#code-signing-policy).' || '' }}"
           generate_release_notes: true
