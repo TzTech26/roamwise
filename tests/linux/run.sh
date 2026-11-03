@@ -28,7 +28,7 @@ check "$work/nm.txt" "Can switch access points: False"
 check "$work/nm.txt" "Connection: profile 'Office', ssid 'Office', bssid 3c:28:6d:a4:f1:20"
 check "$work/nm.txt" "Access points: 3"
 check "$work/nm.txt" "3c:28:6d:b2:07:9c   -52 dBm  5 GHz    ch 149"
-check "$work/nm.txt" "Saved networks: Office"
+check "$work/nm.txt" "Saved networks: Office, Home"
 kill $mock; wait $mock 2>/dev/null || true
 
 echo "== With wpa_supplicant"

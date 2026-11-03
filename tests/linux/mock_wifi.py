@@ -60,6 +60,25 @@ set_prop("org.freedesktop.NetworkManager.Device.Wireless", "ActiveAccessPoint", 
 set_prop("org.freedesktop.NetworkManager.Device.Wireless", "Bitrate", dbus.UInt32(286000))
 set_prop("org.freedesktop.NetworkManager.Device", "State", dbus.UInt32(100))
 
+# Real NetworkManager objects carry nested types the template leaves out; include some so parsing them is tested.
+set_prop("org.freedesktop.NetworkManager.Device", "LldpNeighbors", dbus.Array(
+    [dbus.Dictionary({"chassis-id": "00:11:22:33:44:55", "port-id": "gi0/1", "destination": "nearest-bridge"}, signature="sv")],
+    signature="a{sv}"))
+ip6 = dbus.ByteArray(bytes.fromhex("fd000000000000000000000000000001"))
+dbus.Interface(dbus.SessionBus().get_object("org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager/Settings"),
+               "org.freedesktop.NetworkManager.Settings").AddConnection(dbus.Dictionary({
+    "connection": dbus.Dictionary({"id": "Home", "type": "802-11-wireless", "uuid": "0c5c8a3e-6f0e-4c2b-9d4e-1f2a3b4c5d6e",
+                                   "permissions": dbus.Array([], signature="s")}, signature="sv"),
+    "802-11-wireless": dbus.Dictionary({"ssid": dbus.ByteArray(b"Home"), "mode": "infrastructure",
+                                        "seen-bssids": dbus.Array(["aa:bb:cc:dd:ee:ff"], signature="s")}, signature="sv"),
+    "ipv4": dbus.Dictionary({"method": "manual",
+                             "addresses": dbus.Array([dbus.Array([dbus.UInt32(0x6401a8c0), dbus.UInt32(24), dbus.UInt32(0x0101a8c0)], signature="u")], signature="au"),
+                             "address-data": dbus.Array([dbus.Dictionary({"address": "192.168.1.100", "prefix": dbus.UInt32(24)}, signature="sv")], signature="a{sv}"),
+                             "dns": dbus.Array([dbus.UInt32(0x0101a8c0)], signature="u")}, signature="sv"),
+    "ipv6": dbus.Dictionary({"method": "auto",
+                             "addresses": dbus.Array([dbus.Struct((ip6, dbus.UInt32(64), ip6), signature="ayuay")], signature="(ayuay)")}, signature="sv"),
+}, signature="sa{sv}"))
+
 if WITH_WPA:
     wpa_proc = DBusTestCase.spawn_server("fi.w1.wpa_supplicant1", "/fi/w1/wpa_supplicant1",
                                                   "fi.w1.wpa_supplicant1", system_bus=False, stdout=sys.stderr)
