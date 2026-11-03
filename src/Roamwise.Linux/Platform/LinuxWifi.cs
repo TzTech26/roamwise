@@ -1,4 +1,5 @@
 using System.Text;
+using Roamwise.Core;
 using Roamwise.Wifi;
 using Tmds.DBus.Protocol;
 
@@ -187,7 +188,15 @@ public sealed class LinuxWifi : IWifiBackend
             if (bssid.Length != 6) continue;
             int mhz = (int)p.Num("Frequency");
             var (band, channel) = InfoElements.FromFrequency(mhz);
-            var parsed = InfoElements.Parse(p.Bytes("IEs"));
+            byte[] ies = p.Bytes("IEs");
+            InfoElements.Parsed parsed;
+            try { parsed = InfoElements.Parse(ies); }
+            catch (Exception ex) when (ex is IndexOutOfRangeException or ArgumentException)
+            {
+                // One access point with odd beacon data shouldn't hide the rest; keep the data so it can be fixed.
+                DebugLog.Unexpected(new InvalidDataException($"Beacon data from {Mac.Format(bssid)} on {mhz} MHz couldn't be read: {Convert.ToHexString(ies)}", ex));
+                parsed = InfoElements.Parse([]);
+            }
             int rssi = (int)p.Num("Signal", -100);
 
             result.Add(new AccessPoint
