@@ -41,17 +41,15 @@ jobs:
             README.md
             LICENSE
 
-  # Signs the Windows exes with Azure Artifact Signing so Smart App Control and SmartScreen trust them.
-  # Needs the AZURE_* secrets and ARTIFACT_SIGNING_* variables (see docs/signing.md); without them the release
-  # goes out unsigned, as before.
+  # Signs the Windows exes through SignPath (free signing for open source, certificate by SignPath Foundation) so
+  # Smart App Control and SmartScreen trust them. Needs the SIGNPATH_API_TOKEN secret and SIGNPATH_* variables
+  # (see docs/signing.md); without them the release goes out unsigned, as before.
   sign:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: windows-latest
-    environment: release
-    permissions:
-      id-token: write
-      contents: read
+    outputs:
+      signed: ${{ steps.setup.outputs.ready }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -61,59 +59,55 @@ jobs:
         id: setup
         shell: pwsh
         env:
-          CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
         run: |
-          $ready = [bool]$env:CLIENT_ID -and [bool]'${{ vars.ARTIFACT_SIGNING_ACCOUNT }}'
+          $ready = [bool]$env:TOKEN -and [bool]'${{ vars.SIGNPATH_ORGANIZATION_ID }}'
           "ready=$($ready.ToString().ToLower())" >> $env:GITHUB_OUTPUT
-          if (-not $ready) { "::warning::Artifact Signing isn't set up, so the Windows release is unsigned." }
+          if (-not $ready) { "::warning::SignPath isn't set up, so the Windows release is unsigned." }
+          # One artifact holding both exes, laid out the way the SignPath artifact configuration expects.
+          foreach ($rid in 'win-x64', 'win-arm64') {
+            New-Item -ItemType Directory -Force "to-sign/$rid" | Out-Null
+            Copy-Item "unsigned-$rid/out/$rid/Roamwise.exe" "to-sign/$rid/Roamwise.exe"
+          }
 
-      - name: Azure login
+      - name: Upload for signing
+        id: upload
         if: steps.setup.outputs.ready == 'true'
-        uses: azure/login@v2
+        uses: actions/upload-artifact@v4
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          name: to-sign
+          path: to-sign/
 
+      # Release signing needs an approver to confirm the request in SignPath; this waits up to an hour for that.
       - name: Sign
         if: steps.setup.outputs.ready == 'true'
-        uses: azure/artifact-signing-action@v2
+        uses: signpath/github-action-submit-signing-request@v3
         with:
-          endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
-          signing-account-name: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
-          certificate-profile-name: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
-          files: |
-            ${{ github.workspace }}/unsigned-win-x64/out/win-x64/Roamwise.exe
-            ${{ github.workspace }}/unsigned-win-arm64/out/win-arm64/Roamwise.exe
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
-          exclude-environment-credential: true
-          exclude-workload-identity-credential: true
-          exclude-managed-identity-credential: true
-          exclude-shared-token-cache-credential: true
-          exclude-visual-studio-credential: true
-          exclude-visual-studio-code-credential: true
-          exclude-azure-powershell-credential: true
-          exclude-azure-developer-cli-credential: true
-          exclude-interactive-browser-credential: true
-          exclude-azure-cli-credential: false
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.upload.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed
 
       - name: Check signatures
         if: steps.setup.outputs.ready == 'true'
         shell: pwsh
         run: |
           foreach ($rid in 'win-x64', 'win-arm64') {
-            $s = Get-AuthenticodeSignature "unsigned-$rid/out/$rid/Roamwise.exe"
+            $s = Get-AuthenticodeSignature "signed/$rid/Roamwise.exe"
             "$rid : $($s.Status) $($s.SignerCertificate.Subject)"
             if ($s.Status -ne 'Valid') { throw "$rid isn't signed" }
+            Copy-Item "signed/$rid/Roamwise.exe" "to-sign/$rid/Roamwise.exe" -Force
           }
 
       - name: Zip
         shell: pwsh
         run: |
           foreach ($rid in 'win-x64', 'win-arm64') {
-            Compress-Archive -Path "unsigned-$rid/out/$rid/Roamwise.exe", "unsigned-$rid/README.md", "unsigned-$rid/LICENSE" -DestinationPath "Roamwise-$rid.zip"
+            Compress-Archive -Path "to-sign/$rid/Roamwise.exe", "unsigned-$rid/README.md", "unsigned-$rid/LICENSE" -DestinationPath "Roamwise-$rid.zip"
           }
 
       - uses: actions/upload-artifact@v4
@@ -178,4 +172,6 @@ jobs:
             Roamwise-*.zip
             Roamwise-*.AppImage
             SHA256SUMS.txt
+          # The code signing policy has to be mentioned where people download signed builds.
+          body: ${{ needs.sign.outputs.signed == 'true' && 'Windows builds: free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). See the [code signing policy](https://github.com/TzTech26/roamwise#code-signing-policy).' || '' }}
           generate_release_notes: true

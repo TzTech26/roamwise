@@ -51,8 +51,10 @@ Everything is adjustable from **Settings** (the gear in the panel, or right-clic
 ## Install
 
 1. Download `Roamwise-win-x64.zip` (or `win-arm64`) from [Releases](https://github.com/TzTech26/roamwise/releases) and unzip it anywhere.
-2. Run `Roamwise.exe`. It doesn't need an installer, admin rights, or a separate .NET install.
+2. Run `Roamwise.exe`. It doesn't need an installer, admin rights, or a separate .NET install. It adds itself to the Start menu so Windows search finds it.
 3. Turn on **Start with Windows** in Settings if you want it to run at sign-in.
+
+**To remove it:** turn off **Start with Windows**, quit from the tray menu, then delete `Roamwise.exe`, the **Roamwise** entry in the Start menu (right-click › Open file location), and the `%APPDATA%\Roamwise` folder. On Linux, turn off **Start when I log in**, quit, then delete the AppImage, `~/.config/Roamwise`, `~/.local/share/applications/roamwise.desktop`, and, if you allowed switching, run `sudo rm /etc/dbus-1/system.d/roamwise-$USER.conf` (or use **Remove** under Settings › General › Permission to switch first).
 
 ### Linux (Ubuntu, Linux Mint)
 
@@ -79,6 +81,25 @@ Windows treats nearby access points as location data, so it only shares them wit
 ## How switching works
 
 On Windows, Roamwise calls the Native Wifi API (`WlanConnect`) with your existing profile and a desired BSSID list containing only the target access point. On Linux, it asks `wpa_supplicant` to `Roam` to the target BSSID within the connection NetworkManager already has. Either way the system does the actual association, including authentication, so nothing about your network's security changes. Expect a brief reconnect during a switch, which is why Roamwise only switches when the gain is worth it.
+
+## Code signing policy
+
+Windows releases: free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- Committers and reviewers: [TzTech26](https://github.com/TzTech26)
+- Approvers: [TzTech26](https://github.com/TzTech26)
+
+Every release is built by [GitHub Actions](.github/workflows/build.yml) from the source in this repository, and an approver confirms each signing request. Only Roamwise's own code is signed.
+
+## Privacy
+
+Roamwise has no accounts, analytics or telemetry. It connects to other systems only in these cases:
+
+- **Updates:** once a day it asks GitHub (`api.github.com`) for the latest release of this repository, and downloads it from GitHub when you install an update. Turn this off under Settings › About › Check for updates automatically.
+- **Access point names:** only if you connect a controller under Settings › Names, it reads device names from the address you enter (your UniFi, Omada, Ruckus or Mist controller, or Meraki's API). Nothing is sent anywhere else.
+- **Wi-Fi:** it talks to your own computer's Wi-Fi service (Windows WLAN, or NetworkManager and wpa_supplicant on Linux) to read access points and switch between them.
+
+Settings, the activity history and controller credentials stay on your computer, in `%APPDATA%\Roamwise` or `~/.config/Roamwise`; credentials are encrypted for your account (Windows DPAPI, or the login keyring on Linux).
 
 ## Releasing
 
