@@ -46,20 +46,23 @@ public static class Diagnostics
                             sb.AppendLine($"      neighbor {Mac.Format(n.Bssid)}  {WifiText.Band(n.Band)} ch {n.Channel}  sameSsid={n.SameSsid} coLocated={n.CoLocated} shortSsid={n.ShortSsid:x8}");
                     }
                 }
-                catch (WifiException ex)
+                catch (Exception ex)
                 {
-                    sb.AppendLine($"Scan: {ex.Message}");
+                    sb.AppendLine($"Scan: {Describe(ex)}");
                 }
 
                 try { sb.AppendLine($"Saved networks: {string.Join(", ", await wlan.GetSavedNetworksAsync(adapter, ct))}"); }
-                catch (WifiException ex) { sb.AppendLine($"Saved networks: {ex.Message}"); }
+                catch (Exception ex) { sb.AppendLine($"Saved networks: {Describe(ex)}"); }
             }
         }
-        catch (WifiException ex)
+        catch (Exception ex)
         {
-            sb.AppendLine($"Wi-Fi: {ex.Message}");
+            sb.AppendLine($"Wi-Fi: {Describe(ex)}");
         }
 
         await File.WriteAllTextAsync(path, sb.ToString());
     }
+
+    // Expected problems read as a sentence; anything else keeps its stack trace for the bug report.
+    private static string Describe(Exception ex) => ex is WifiException ? ex.Message : ex.ToString();
 }

@@ -108,7 +108,8 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
             {
                 Publish(Snapshot with { State = EngineState.Problem, Problem = ex.Message, Decision = ex.Message, LastCheck = DateTime.Now });
                 NoteProblem(ex.Message);
-                DebugLog.Write($"check: failed {ex}");
+                if (ex is WifiException) DebugLog.Write($"check: failed {ex}");
+                else DebugLog.Unexpected(ex);
             }
 
             var interval = TimeSpan.FromSeconds(_settings.ScanIntervalSeconds);

@@ -19,4 +19,28 @@ public static class DebugLog
             catch (IOException) { }
         }
     }
+
+    private static string? _lastUnexpected;
+
+    /// <summary>
+    /// An error Roamwise didn't expect, with its stack trace. Kept in errors.log even without --verbose so a
+    /// "Something went wrong" can be traced; repeats of the same error are written once.
+    /// </summary>
+    public static void Unexpected(Exception ex)
+    {
+        Write($"unexpected: {ex}");
+        string text = ex.ToString();
+        lock (Lock)
+        {
+            if (text == _lastUnexpected) return;
+            _lastUnexpected = text;
+            try
+            {
+                string path = Path.Combine(SettingsStore.DataFolder, "errors.log");
+                if (File.Exists(path) && new FileInfo(path).Length > 256 * 1024) File.Delete(path);
+                File.AppendAllText(path, $"{DateTime.Now:u} Roamwise {Updater.CurrentVersion}{Environment.NewLine}{text}{Environment.NewLine}{Environment.NewLine}");
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
+    }
 }

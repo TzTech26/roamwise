@@ -23,6 +23,7 @@ public static class Program
 
         // For the CI test against mock services: switch to one BSSID and report.
         if (Array.IndexOf(args, "--roam-test") is int ri && ri >= 0) return RoamTest(args.ElementAtOrDefault(ri + 1));
+        if (args.Contains("--engine-test")) return EngineTest();
 
         // After an update the new copy waits for the old one to exit, then removes the old file.
         if (args.SkipWhile(a => a != "--wait").Skip(1).FirstOrDefault() is string pidText && int.TryParse(pidText, out int pid))
@@ -61,6 +62,26 @@ public static class Program
         bool ok = wifi.ConnectToBssidAsync(adapter, connection, bssid, TimeSpan.FromSeconds(5), ct).GetAwaiter().GetResult();
         Console.WriteLine(ok ? $"roam-test: now on {target}" : "roam-test: switch did not complete");
         return ok ? 0 : 1;
+    }
+
+    /// <summary>Runs the engine's checks for a few seconds, the way the tray app does, and reports the result.</summary>
+    private static int EngineTest()
+    {
+        var settings = new AppSettings();
+        using var engine = new RoamEngine(settings, new ActivityLog(), new LinuxWifi());
+        var checks = new List<EngineSnapshot>();
+        engine.SnapshotChanged += s => { lock (checks) checks.Add(s); };
+        engine.Start();
+        Thread.Sleep(4000);
+        engine.CheckNow();
+        Thread.Sleep(4000);
+        lock (checks)
+        {
+            var last = checks.LastOrDefault();
+            Console.WriteLine($"engine-test: {checks.Count} updates, state {last?.State}, {last?.Siblings.Count} radios, problem '{last?.Problem}'");
+            Console.WriteLine($"engine-test: {last?.Decision}");
+            return last is { State: EngineState.Connected } ? 0 : 1;
+        }
     }
 
     public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>().UsePlatformDetect().LogToTrace();

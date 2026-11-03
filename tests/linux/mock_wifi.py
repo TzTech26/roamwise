@@ -106,6 +106,17 @@ if WITH_WPA:
             "Signal": dbus.Int16(dbm),
             "Age": dbus.UInt32(2),
             "IEs": dbus.Array([dbus.Byte(b) for b in ies(46 if i == 1 else 158)], signature="y"),
+            # What a real supplicant adds: nested dictionaries holding string arrays, rates, flags.
+            "Mode": "infrastructure",
+            "Privacy": dbus.Boolean(True),
+            "Rates": dbus.Array([dbus.UInt32(r) for r in (54000000, 48000000, 24000000, 6000000)], signature="u"),
+            "WPA": dbus.Dictionary({"KeyMgmt": dbus.Array([], signature="s"), "Pairwise": dbus.Array([], signature="s"),
+                                    "Group": ""}, signature="sv"),
+            "RSN": dbus.Dictionary({"KeyMgmt": dbus.Array(["wpa-psk", "sae"], signature="s"),
+                                    "Pairwise": dbus.Array(["ccmp"], signature="s"),
+                                    "Group": "ccmp", "MgmtGroup": "aes128cmac"}, signature="sv"),
+            "WPS": dbus.Dictionary({"Type": ""}, signature="sv"),
+            "ANQP": dbus.Dictionary({}, signature="sv"),
         }, [])
 
     by_bssid = {bssid: paths[i] for i, (bssid, *_rest) in enumerate(APS)}
