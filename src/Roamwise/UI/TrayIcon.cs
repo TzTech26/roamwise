@@ -90,9 +90,8 @@ public sealed class TrayIcon : IDisposable
     }
 
     /// <summary>
-    /// The Windows Wi-Fi glyph (so it reads as Wi-Fi at a glance) with a status badge cut into the corner:
-    /// green when Roamwise is managing the connection, a pause sign when paused, grey when idle.
-    /// Full-contrast ink in every state; the badge carries the state, not a faded glyph.
+    /// The Windows Wi-Fi glyph (so it reads as Wi-Fi at a glance): all green when Roamwise is managing the
+    /// connection, otherwise full-contrast ink with a badge cut into the corner (a pause sign when paused, grey when idle).
     /// </summary>
     private static Icon Render(int size, bool taskbarDark, TrayState state)
     {
@@ -103,6 +102,13 @@ public sealed class TrayIcon : IDisposable
             g.PixelOffsetMode = PixelOffsetMode.HighQuality;
             g.Clear(Color.Transparent);
             var ink = taskbarDark ? Color.White : Color.FromArgb(0x1B, 0x1E, 0x23);
+
+            // Active: the whole glyph turns green and needs no badge.
+            if (state == TrayState.Active)
+            {
+                DrawWifi(g, size, taskbarDark ? Color.FromArgb(0x4C, 0xC9, 0x9B) : Color.FromArgb(0x1E, 0x8E, 0x66));
+                return Icon.FromHandle(bmp.GetHicon());
+            }
 
             DrawWifi(g, size, ink);
 
@@ -119,7 +125,6 @@ public sealed class TrayIcon : IDisposable
 
             var fill = state switch
             {
-                TrayState.Active => Color.FromArgb(0x3F, 0xB6, 0x8B),
                 TrayState.Paused => taskbarDark ? Color.FromArgb(0xC8, 0xCC, 0xD2) : Color.FromArgb(0x5C, 0x63, 0x6D),
                 _ => taskbarDark ? Color.FromArgb(0x8A, 0x91, 0x9B) : Color.FromArgb(0x9A, 0xA1, 0xAA),
             };

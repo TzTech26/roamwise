@@ -27,7 +27,7 @@
         <!-- Navigation -->
         <StackPanel Margin="12,16,8,16">
             <StackPanel Orientation="Horizontal" Margin="12,0,0,20">
-                <Image Source="pack://application:,,,/Assets/Roamwise.ico" Width="20" Height="20" />
+                <Image Source="{StaticResource Rw.Logo}" Width="20" Height="20" />
                 <TextBlock Text="Roamwise" Style="{StaticResource Rw.Subtitle}" Margin="10,0,0,0" VerticalAlignment="Center" />
             </StackPanel>
             <RadioButton x:Name="NavGeneral" Style="{StaticResource Rw.NavItem}" GroupName="Nav" Tag="&#xE713;" Content="General" IsChecked="True" Checked="Nav_Checked" />
@@ -460,7 +460,7 @@
                     <Border Style="{StaticResource Rw.Card}" Margin="0,20,0,0" Padding="20,18">
                         <StackPanel>
                             <StackPanel Orientation="Horizontal">
-                                <Image Source="pack://application:,,,/Assets/Roamwise.ico" Width="32" Height="32" />
+                                <Image Source="{StaticResource Rw.Logo}" Width="32" Height="32" />
                                 <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
                                     <TextBlock Text="Roamwise" Style="{StaticResource Rw.Subtitle}" />
                                     <TextBlock x:Name="VersionText" Style="{StaticResource Rw.Caption}" />

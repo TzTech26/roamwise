@@ -267,6 +267,30 @@
         </Setter>
     </Style>
 
+    <!-- The app logo as vectors (same artwork as tools/make-icon.ps1, 64-unit grid), so it stays sharp at any size and DPI -->
+    <DrawingImage x:Key="Rw.Logo">
+        <DrawingImage.Drawing>
+            <DrawingGroup>
+                <GeometryDrawing Brush="#1F2A37" Geometry="M16,2 H48 A14,14 0 0 1 62,16 V48 A14,14 0 0 1 48,62 H16 A14,14 0 0 1 2,48 V16 A14,14 0 0 1 16,2 Z" />
+                <GeometryDrawing Geometry="M23.515,38.515 A12,12 0 0 1 40.485,38.515 M15.029,30.029 A24,24 0 0 1 48.971,30.029">
+                    <GeometryDrawing.Pen>
+                        <Pen Brush="#E9EBEE" Thickness="5" StartLineCap="Round" EndLineCap="Round" />
+                    </GeometryDrawing.Pen>
+                </GeometryDrawing>
+                <GeometryDrawing Brush="#E9EBEE">
+                    <GeometryDrawing.Geometry>
+                        <EllipseGeometry Center="32,47" RadiusX="4.5" RadiusY="4.5" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+                <GeometryDrawing Brush="#3FB68B">
+                    <GeometryDrawing.Geometry>
+                        <EllipseGeometry Center="46,17" RadiusX="7" RadiusY="7" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
     <!-- A group of related settings rows -->
     <Style x:Key="Rw.Card" TargetType="Border">
         <Setter Property="Background" Value="{DynamicResource Rw.CardFill}" />

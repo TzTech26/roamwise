@@ -13,7 +13,7 @@
     <ApplicationIcon>Assets\Roamwise.ico</ApplicationIcon>
     <AssemblyName>Roamwise</AssemblyName>
     <RootNamespace>Roamwise</RootNamespace>
-    <Version>1.1.0</Version>
+    <Version>1.1.1</Version>
     <Product>Roamwise</Product>
     <Description>Keeps your PC on the best Wi-Fi access point.</Description>
     <Copyright>Copyright © 2026</Copyright>
