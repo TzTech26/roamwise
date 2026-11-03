@@ -29,10 +29,22 @@ aps = [nm.AddAccessPoint(device, f"ap{i}", "Office", bssid, 2, freq, 54000, stre
        for i, (bssid, freq, strength, _) in enumerate(APS)]
 connection = nm.AddWiFiConnection(device, "Office", "Office", "wpa-psk")
 nm.AddActiveConnection([device], connection, aps[0], "Office", 2)
-props = dbus.Interface(dbus.SessionBus().get_object("org.freedesktop.NetworkManager", device), dbus.PROPERTIES_IFACE)
-props.Set("org.freedesktop.NetworkManager.Device.Wireless", "ActiveAccessPoint", dbus.ObjectPath(aps[0]))
-props.Set("org.freedesktop.NetworkManager.Device.Wireless", "Bitrate", dbus.UInt32(286000))
-props.Set("org.freedesktop.NetworkManager.Device", "State", dbus.UInt32(100))
+device_obj = dbus.SessionBus().get_object("org.freedesktop.NetworkManager", device)
+props = dbus.Interface(device_obj, dbus.PROPERTIES_IFACE)
+device_mock = dbus.Interface(device_obj, dbusmock.MOCK_IFACE)
+
+
+def set_prop(interface, name, value):
+    # The template only defines some properties; add the rest.
+    try:
+        props.Set(interface, name, value)
+    except dbus.exceptions.DBusException:
+        device_mock.AddProperty(interface, name, value)
+
+
+set_prop("org.freedesktop.NetworkManager.Device.Wireless", "ActiveAccessPoint", dbus.ObjectPath(aps[0]))
+set_prop("org.freedesktop.NetworkManager.Device.Wireless", "Bitrate", dbus.UInt32(286000))
+set_prop("org.freedesktop.NetworkManager.Device", "State", dbus.UInt32(100))
 
 if WITH_WPA:
     wpa_proc, wpa_obj = DBusTestCase.spawn_server("fi.w1.wpa_supplicant1", "/fi/w1/wpa_supplicant1",
