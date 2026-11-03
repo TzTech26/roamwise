@@ -61,9 +61,10 @@ set_prop("org.freedesktop.NetworkManager.Device.Wireless", "Bitrate", dbus.UInt3
 set_prop("org.freedesktop.NetworkManager.Device", "State", dbus.UInt32(100))
 
 if WITH_WPA:
-    wpa_proc, wpa_obj = DBusTestCase.spawn_server("fi.w1.wpa_supplicant1", "/fi/w1/wpa_supplicant1",
+    wpa_proc = DBusTestCase.spawn_server("fi.w1.wpa_supplicant1", "/fi/w1/wpa_supplicant1",
                                                   "fi.w1.wpa_supplicant1", system_bus=False, stdout=sys.stderr)
     servers.append(wpa_proc)
+    wpa_obj = dbus.SessionBus().get_object("fi.w1.wpa_supplicant1", "/fi/w1/wpa_supplicant1")
     wpa = dbus.Interface(wpa_obj, dbusmock.MOCK_IFACE)
     iface = "/fi/w1/wpa_supplicant1/Interfaces/0"
     wpa.AddMethod("fi.w1.wpa_supplicant1", "GetInterface", "s", "o", f"ret = dbus.ObjectPath('{iface}')")
