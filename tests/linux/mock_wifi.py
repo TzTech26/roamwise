@@ -6,6 +6,7 @@
 
 Prints READY once everything is registered, then serves until killed.
 """
+import signal
 import sys
 import time
 
@@ -24,6 +25,19 @@ APS = [
 
 nm_proc, nm_obj = DBusTestCase.spawn_server_template("networkmanager", {}, stdout=sys.stderr, system_bus=False)
 nm = dbus.Interface(nm_obj, dbusmock.MOCK_IFACE)
+servers = [nm_proc]
+
+
+def stop(*_):
+    # The mock servers are separate processes; take them down with us so the next run can claim the names.
+    for server in servers:
+        server.terminate()
+        server.wait()
+    sys.exit(0)
+
+
+signal.signal(signal.SIGTERM, stop)
+signal.signal(signal.SIGINT, stop)
 device = nm.AddWiFiDevice("mock_wifi0", "wlan0", 100)
 aps = [nm.AddAccessPoint(device, f"ap{i}", "Office", bssid, 2, freq, 54000, strength, 0x100)
        for i, (bssid, freq, strength, _) in enumerate(APS)]
@@ -49,6 +63,7 @@ set_prop("org.freedesktop.NetworkManager.Device", "State", dbus.UInt32(100))
 if WITH_WPA:
     wpa_proc, wpa_obj = DBusTestCase.spawn_server("fi.w1.wpa_supplicant1", "/fi/w1/wpa_supplicant1",
                                                   "fi.w1.wpa_supplicant1", system_bus=False, stdout=sys.stderr)
+    servers.append(wpa_proc)
     wpa = dbus.Interface(wpa_obj, dbusmock.MOCK_IFACE)
     iface = "/fi/w1/wpa_supplicant1/Interfaces/0"
     wpa.AddMethod("fi.w1.wpa_supplicant1", "GetInterface", "s", "o", f"ret = dbus.ObjectPath('{iface}')")
