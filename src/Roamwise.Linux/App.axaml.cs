@@ -19,6 +19,7 @@ public partial class App : Application
     private SettingsStore _store = null!;
     private ActivityLog _log = null!;
     private IRoamEngine _engine = null!;
+    private LinuxWifi? _wifi;
     private Tray _tray = null!;
     private FlyoutWindow _flyout = null!;
     private SettingsWindow? _settingsWindow;
@@ -51,7 +52,8 @@ public partial class App : Application
         _log = new ActivityLog();
         ApplyTheme();
 
-        _engine = _demo ? new DemoEngine(Settings) : new RoamEngine(Settings, _log, new LinuxWifi());
+        if (!_demo) _wifi = new LinuxWifi();
+        _engine = _wifi is null ? new DemoEngine(Settings) : new RoamEngine(Settings, _log, _wifi);
         _names = new NameSources(Settings, _log, new KeyringSecretStore());
         _updater = new Updater(Settings, _log);
         _updater.QuitRequested += () => Dispatcher.UIThread.Post(Quit);
@@ -118,8 +120,14 @@ public partial class App : Application
 
     private async Task<string?> AllowSwitchingAsync()
     {
-        if (_demo) return "Not available in the demo.";
+        if (_wifi is null) return "Not available in the demo.";
         string? problem = await SwitchPermission.GrantAsync();
+        if (problem is null)
+        {
+            await _wifi.ReconnectAsync();
+            if (await _wifi.CheckSwitchingAsync() is string refused)
+                problem = $"The permission is in place, but wpa_supplicant still refused ({refused}). Quit and reopen Roamwise; if this stays, send a diagnostics report from Settings › About.";
+        }
         _log.Add(problem is null ? ActivityKind.Info : ActivityKind.Problem,
             problem is null ? "Allowed Roamwise to switch access points." : $"Couldn't allow switching: {problem}");
         _engine.CheckNow();
@@ -128,8 +136,9 @@ public partial class App : Application
 
     private async Task<string?> RevokeSwitchingAsync()
     {
-        if (_demo) return "Not available in the demo.";
+        if (_wifi is null) return "Not available in the demo.";
         string? problem = await SwitchPermission.RevokeAsync();
+        if (problem is null) await _wifi.ReconnectAsync();
         if (problem is null) _log.Add(ActivityKind.Info, "Removed Roamwise's permission to switch access points.");
         _engine.CheckNow();
         return problem;

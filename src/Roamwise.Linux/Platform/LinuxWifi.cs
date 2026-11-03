@@ -30,7 +30,8 @@ public sealed class LinuxWifi : IWifiBackend
     private readonly SemaphoreSlim _connect = new(1, 1);
     private readonly CancellationTokenSource _stop = new();
     private Bus? _bus;
-    private string? _wpaInterface;          // supplicant object for the adapter, when we're allowed to use it
+    private bool _watching;
+    private string? _wpaInterface;         // supplicant object for the adapter, when we're allowed to use it
     private string? _wpaProblem;
     private string _watched = "";
     private string _nmVersion = "unknown";
@@ -55,10 +56,41 @@ public sealed class LinuxWifi : IWifiBackend
             {
                 throw new WifiException(WifiErrorKind.ServiceDown, "Can't reach the system bus, so Wi-Fi details aren't available.");
             }
-            _ = WatchAsync(_stop.Token);
+            if (!_watching)
+            {
+                _watching = true;
+                _ = WatchAsync(_stop.Token);
+            }
             return _bus;
         }
         finally { _connect.Release(); }
+    }
+
+    /// <summary>
+    /// Opens a new bus connection for the next call. The bus applies its policy to a connection when it opens
+    /// (dbus-broker never updates it), so after the one-time setup or its removal the old connection keeps the old rules.
+    /// </summary>
+    public async Task ReconnectAsync()
+    {
+        Bus? old;
+        await _connect.WaitAsync();
+        try
+        {
+            old = _bus;
+            _bus = null;
+            _wpaInterface = null;
+        }
+        finally { _connect.Release(); }
+        // Calls already under way on the old connection get to finish.
+        if (old is not null) _ = Task.Delay(TimeSpan.FromSeconds(15)).ContinueWith(_ => old.Dispose(), TaskScheduler.Default);
+    }
+
+    /// <summary>Looks for wpa_supplicant again. Returns null when Roamwise can switch, or why it can't.</summary>
+    public async Task<string?> CheckSwitchingAsync()
+    {
+        try { await GetAdaptersAsync(CancellationToken.None); }
+        catch (WifiException ex) { return ex.Message; }
+        return CanSwitch ? null : _wpaProblem ?? "No Wi-Fi adapter found.";
     }
 
     private static WifiException NmMissing(DBusException ex) =>
@@ -418,7 +450,7 @@ public sealed class LinuxWifi : IWifiBackend
             try
             {
                 await Task.Delay(2000, ct);
-                var bus = _bus!;
+                if (_bus is not Bus bus) continue;
                 var devices = await bus.CallAsync(Nm, NmPath, Nm, "GetDevices", null, null, static (m, _) => m.GetBodyReader().ReadArrayOfObjectPath());
                 var sb = new StringBuilder();
                 foreach (var path in devices.Select(d => d.ToString()))
@@ -433,7 +465,7 @@ public sealed class LinuxWifi : IWifiBackend
                 _watched = state;
             }
             catch (OperationCanceledException) { return; }
-            catch (Exception ex) when (ex is DBusException or DisconnectedException or InvalidOperationException) { }
+            catch (Exception ex) when (ex is DBusException or DisconnectedException or InvalidOperationException or ObjectDisposedException) { }
             catch (Exception ex) { DebugLog.Unexpected(ex); }
         }
     }
