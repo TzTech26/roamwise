@@ -104,6 +104,12 @@ public partial class App : Application
         _theme.Changed += UpdateTray;
         Settings.PropertyChanged += OnSettingChanged;
         SyncStartup();
+        // Only the published single-file exe gets a Start menu entry, not demo or development runs.
+        if (!demo && Updater.CanSelfUpdate)
+        {
+            try { StartMenu.Install(); }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or UnauthorizedAccessException or System.IO.IOException) { }
+        }
         if (e.Args.Contains("--updated")) _tray.Notify("Roamwise updated", $"You're now on version {Updater.CurrentVersion}.");
 
         if (!demo)

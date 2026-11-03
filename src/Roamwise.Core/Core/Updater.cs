@@ -58,7 +58,8 @@ public sealed class Updater
     public static void CleanUpAfterUpdate()
     {
         if (TargetPath is not string target) return;
-        try { File.Delete(target + ".old"); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        foreach (string old in Directory.EnumerateFiles(Path.GetDirectoryName(target)!, Path.GetFileName(target) + ".old*"))
+            try { File.Delete(old); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
     public async Task<UpdateInfo?> CheckAsync(CancellationToken ct = default)
@@ -144,8 +145,10 @@ public sealed class Updater
                 if (!File.Exists(newCopy)) return "The download didn't contain Roamwise.exe.";
             }
 
-            // Swap: the running copy can be renamed but not overwritten.
-            File.Delete(target + ".old");
+            // Swap: the running copy can be renamed but not overwritten. A previous copy that's still running can't be
+            // deleted either, so it moves aside and goes at the next start.
+            try { File.Delete(target + ".old"); }
+            catch (UnauthorizedAccessException) { File.Move(target + ".old", $"{target}.old-{Guid.NewGuid():N}"); }
             File.Move(target, target + ".old");
             try
             {
@@ -155,9 +158,18 @@ public sealed class Updater
             }
             catch { File.Move(target + ".old", target, overwrite: true); throw; }
 
-            _log.Add(ActivityKind.Info, $"Updated to Roamwise {update.Version}.");
             // The new copy waits for this one to exit before taking over the tray.
-            Process.Start(new ProcessStartInfo(target, $"--background --updated --wait {Environment.ProcessId}") { UseShellExecute = false });
+            try { Process.Start(new ProcessStartInfo(target, $"--background --updated --wait {Environment.ProcessId}") { UseShellExecute = false }); }
+            catch (System.ComponentModel.Win32Exception ex)
+            {
+                // Windows refused to run the new copy (Smart App Control, antivirus, an app control policy): put this one back.
+                File.Delete(target);
+                File.Move(target + ".old", target);
+                _log.Add(ActivityKind.Problem, $"Windows blocked Roamwise {update.Version} from starting ({ex.Message}). Kept {CurrentVersion}.");
+                return $"Windows blocked the new version from starting, so Roamwise kept {CurrentVersion}. " +
+                       "Smart App Control blocks apps without a code signature; see the release page for other ways to install.";
+            }
+            _log.Add(ActivityKind.Info, $"Updated to Roamwise {update.Version}.");
             QuitRequested?.Invoke();
             return null;
         }
