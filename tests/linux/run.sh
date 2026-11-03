@@ -22,7 +22,7 @@ check() { grep -q -- "$2" "$1" || { echo "FAIL: expected '$2' in $1"; cat "$1"; 
 
 echo "== NetworkManager only (before the one-time setup)"
 start_mock nm
-"$bin" --diagnose "$work/nm.txt"
+timeout 60 "$bin" --diagnose "$work/nm.txt"
 cat "$work/nm.txt"
 check "$work/nm.txt" "Can switch access points: False"
 check "$work/nm.txt" "Connection: profile 'Office', ssid 'Office', bssid 3c:28:6d:a4:f1:20"
@@ -33,12 +33,12 @@ kill $mock; wait $mock 2>/dev/null || true
 
 echo "== With wpa_supplicant"
 start_mock nm+wpa
-"$bin" --diagnose "$work/wpa.txt"
+timeout 60 "$bin" --diagnose "$work/wpa.txt"
 cat "$work/wpa.txt"
 check "$work/wpa.txt" "Can switch access points: True"
 check "$work/wpa.txt" "rssi -70"
 check "$work/wpa.txt" "3c:28:6d:b2:07:9c   -54 dBm  5 GHz    ch 149  80 MHz  Wi-Fi 6      load  18%  sta   9"
-"$bin" --roam-test 3c:28:6d:b2:07:9c | tee "$work/roam.txt"
+timeout 60 "$bin" --roam-test 3c:28:6d:b2:07:9c | tee "$work/roam.txt"
 check "$work/roam.txt" "roam-test: now on 3c:28:6d:b2:07:9c"
 
 echo "All Linux D-Bus checks passed."

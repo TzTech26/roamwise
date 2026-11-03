@@ -32,6 +32,7 @@ public sealed class LinuxWifi : IWifiBackend
     private string? _wpaInterface;          // supplicant object for the adapter, when we're allowed to use it
     private string? _wpaProblem;
     private string _watched = "";
+    private string _nmVersion = "unknown";
 
     public event Action? ConnectionChanged;
 
@@ -85,6 +86,7 @@ public sealed class LinuxWifi : IWifiBackend
             // Pick the supplicant interface for the adapter we'll use (connected first, like the engine does).
             var main = result.OrderByDescending(a => a.IsConnected).FirstOrDefault();
             if (main is not null) await FindSupplicantAsync(bus, main.Name);
+            _nmVersion = Props.Unwrap(await bus.GetAsync(Nm, NmPath, Nm, "Version")).GetString();
             return result;
         }
         catch (DBusException ex) { throw NmMissing(ex); }
@@ -426,18 +428,13 @@ public sealed class LinuxWifi : IWifiBackend
         static string Read(string path) => File.Exists(path) ? File.ReadAllText(path).Trim() : "";
     }
 
-    public IEnumerable<string> DiagnosticsHeader()
-    {
-        string nm = "unknown";
-        try { nm = Props.Unwrap(BusAsync().GetAwaiter().GetResult().GetAsync(Nm, NmPath, Nm, "Version").GetAwaiter().GetResult()).GetString(); }
-        catch (Exception ex) when (ex is DBusException or WifiException) { nm = $"unavailable ({ex.Message})"; }
-        return
+    // Read after GetAdaptersAsync. Blocking on a bus call here would deadlock: this can run on the bus reader thread.
+    public IEnumerable<string> DiagnosticsHeader() =>
         [
-            $"NetworkManager {nm}",
+            $"NetworkManager {_nmVersion}",
             $"Desktop: {Environment.GetEnvironmentVariable("XDG_CURRENT_DESKTOP")} on {Environment.GetEnvironmentVariable("XDG_SESSION_TYPE")}",
             $"wpa_supplicant: {(_wpaInterface is not null ? $"available ({_wpaInterface})" : _wpaProblem ?? "not checked yet")}",
         ];
-    }
 
     private static string DecodeSsid(byte[] bytes) => Encoding.UTF8.GetString(bytes, 0, Math.Min(bytes.Length, 32));
 
