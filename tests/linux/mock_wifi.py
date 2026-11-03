@@ -25,7 +25,7 @@ APS = [
 nm_proc, nm_obj = DBusTestCase.spawn_server_template("networkmanager", {}, stdout=sys.stderr, system_bus=False)
 nm = dbus.Interface(nm_obj, dbusmock.MOCK_IFACE)
 device = nm.AddWiFiDevice("mock_wifi0", "wlan0", 100)
-aps = [nm.AddAccessPoint(device, f"ap{i}", "Office", bssid, 2, freq, 54000, strength, 0x400)
+aps = [nm.AddAccessPoint(device, f"ap{i}", "Office", bssid, 2, freq, 54000, strength, 0x100)
        for i, (bssid, freq, strength, _) in enumerate(APS)]
 connection = nm.AddWiFiConnection(device, "office-conn", "Office", "wpa-psk")
 nm.AddActiveConnection([device], connection, aps[0], "Office", 2)
