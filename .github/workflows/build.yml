@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [main]
+    branches: [main, update-fixes]
     tags: ["v*"]
   pull_request:
 
@@ -32,14 +32,94 @@ jobs:
       - name: Publish
         run: dotnet publish src/Roamwise/Roamwise.csproj -c Release -r ${{ matrix.rid }} -o out/${{ matrix.rid }} ${{ env.VERSION_ARG }}
 
+      # Releases are signed in the sign job; this copy is for trying a build.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-${{ matrix.rid }}
+          path: |
+            out/${{ matrix.rid }}/Roamwise.exe
+            README.md
+            LICENSE
+
+  # Signs the Windows exes with Azure Artifact Signing so Smart App Control and SmartScreen trust them.
+  # Needs the AZURE_* secrets and ARTIFACT_SIGNING_* variables (see docs/signing.md); without them the release
+  # goes out unsigned, as before.
+  sign:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: windows-latest
+    environment: release
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: unsigned-*
+
+      - name: Check for signing setup
+        id: setup
+        shell: pwsh
+        env:
+          CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        run: |
+          $ready = [bool]$env:CLIENT_ID -and [bool]'${{ vars.ARTIFACT_SIGNING_ACCOUNT }}'
+          "ready=$($ready.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          if (-not $ready) { "::warning::Artifact Signing isn't set up, so the Windows release is unsigned." }
+
+      - name: Azure login
+        if: steps.setup.outputs.ready == 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign
+        if: steps.setup.outputs.ready == 'true'
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+          files: |
+            ${{ github.workspace }}/unsigned-win-x64/out/win-x64/Roamwise.exe
+            ${{ github.workspace }}/unsigned-win-arm64/out/win-arm64/Roamwise.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          exclude-environment-credential: true
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+          exclude-azure-cli-credential: false
+
+      - name: Check signatures
+        if: steps.setup.outputs.ready == 'true'
+        shell: pwsh
+        run: |
+          foreach ($rid in 'win-x64', 'win-arm64') {
+            $s = Get-AuthenticodeSignature "unsigned-$rid/out/$rid/Roamwise.exe"
+            "$rid : $($s.Status) $($s.SignerCertificate.Subject)"
+            if ($s.Status -ne 'Valid') { throw "$rid isn't signed" }
+          }
+
       - name: Zip
         shell: pwsh
-        run: Compress-Archive -Path out/${{ matrix.rid }}/Roamwise.exe, README.md, LICENSE -DestinationPath Roamwise-${{ matrix.rid }}.zip
+        run: |
+          foreach ($rid in 'win-x64', 'win-arm64') {
+            Compress-Archive -Path "unsigned-$rid/out/$rid/Roamwise.exe", "unsigned-$rid/README.md", "unsigned-$rid/LICENSE" -DestinationPath "Roamwise-$rid.zip"
+          }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Roamwise-${{ matrix.rid }}
-          path: Roamwise-${{ matrix.rid }}.zip
+          name: Roamwise-windows
+          path: Roamwise-win-*.zip
 
   linux:
     strategy:
@@ -80,11 +160,12 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, linux]
+    needs: [sign, linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: Roamwise-*
           merge-multiple: true
 
       # The in-app updater refuses to install a download whose hash isn't listed here.
