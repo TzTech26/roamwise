@@ -1,4 +1,3 @@
-using Roamwise.Native;
 using Roamwise.Wifi;
 
 namespace Roamwise.Core;
@@ -16,6 +15,8 @@ public sealed record EngineSnapshot
     public ApScore? Candidate { get; init; }
     public bool IsManaged { get; init; }
     public bool IsRoaming { get; init; }
+    /// <summary>False when the system lets Roamwise read access points but not switch (Linux before the one-time setup).</summary>
+    public bool CanSwitch { get; init; } = true;
     public int NearbyNetworks { get; init; }
     /// <summary>One plain sentence on what Roamwise decided and why.</summary>
     public string Decision { get; init; } = "Starting up…";
@@ -39,7 +40,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
 
     private readonly AppSettings _settings;
     private readonly ActivityLog _log;
-    private readonly WlanClient _wlan;
+    private readonly IWifiBackend _wlan;
     private readonly CancellationTokenSource _stop = new();
     private readonly SemaphoreSlim _wake = new(0);
 
@@ -49,7 +50,9 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
     private DateTime _lastRoam = DateTime.MinValue;
     private DateTime _lastScan = DateTime.MinValue;
     private string? _manualTarget;
-    private (Guid iface, bool on)? _lowLatencyApplied;
+    private (string iface, bool on)? _lowLatencyApplied;
+    private WifiAdapter? _adapter;
+    private IReadOnlyList<string> _saved = [];
     private string? _lastProblem;
     private readonly Dictionary<string, (AccessPoint ap, DateTime seen)> _recent = new();
     private (long bytes, DateTime at)? _traffic;
@@ -60,12 +63,12 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
     public event Action<EngineSnapshot>? SnapshotChanged;
     public event Action<RoamResult>? Roamed;
 
-    public RoamEngine(AppSettings settings, ActivityLog log)
+    public RoamEngine(AppSettings settings, ActivityLog log, IWifiBackend wifi)
     {
         _settings = settings;
         _log = log;
-        _wlan = new WlanClient();
-        _wlan.ConnectionChanged += _ => Wake();
+        _wlan = wifi;
+        _wlan.ConnectionChanged += Wake;
         _settings.PropertyChanged += (_, e) =>
         {
             // Rule changes should show up in the flyout right away, not at the next scheduled check.
@@ -86,15 +89,8 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         Wake();
     }
 
-    public IReadOnlyList<string> SavedNetworks()
-    {
-        try
-        {
-            var adapter = _wlan.GetAdapters().FirstOrDefault();
-            return adapter is null ? [] : _wlan.GetProfileNames(adapter.Id).Distinct().Order().ToList();
-        }
-        catch (WlanException) { return []; }
-    }
+    /// <summary>Saved networks as of the latest check.</summary>
+    public IReadOnlyList<string> SavedNetworks() => _saved;
 
     private void Wake()
     {
@@ -116,7 +112,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
             }
 
             var interval = TimeSpan.FromSeconds(_settings.ScanIntervalSeconds);
-            if (_settings.SlowerOnBattery && OnBattery()) interval *= 2;
+            if (_settings.SlowerOnBattery && _wlan.OnBattery()) interval *= 2;
             Publish(Snapshot with { NextCheck = DateTime.Now + interval });
             DebugLog.Write($"wait: up to {interval.TotalSeconds:0} s");
 
@@ -134,15 +130,18 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
 
     private async Task CheckAsync(CancellationToken ct)
     {
-        var adapter = _wlan.GetAdapters().OrderByDescending(a => a.IsConnected).FirstOrDefault();
+        var adapter = (await _wlan.GetAdaptersAsync(ct)).OrderByDescending(a => a.IsConnected).FirstOrDefault();
+        _adapter = adapter;
         if (adapter is null)
         {
             Publish(new EngineSnapshot { State = EngineState.NoAdapter, Decision = "No Wi-Fi adapter found.", LastCheck = DateTime.Now });
             return;
         }
 
-        ApplyLowLatency(adapter.Id);
-        MeasureTraffic(adapter.Id);
+        ApplyLowLatency(adapter);
+        MeasureTraffic(adapter);
+        try { _saved = (await _wlan.GetSavedNetworksAsync(adapter, ct)).Distinct().Order().ToList(); }
+        catch (WifiException) { }
 
         IReadOnlyList<AccessPoint> all;
         try
@@ -150,11 +149,11 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
             if (DateTime.Now - _lastScan >= MinGapBetweenScans)
             {
                 _lastScan = DateTime.Now;
-                await _wlan.ScanAsync(adapter.Id, ScanTimeout, ct);
+                await _wlan.ScanAsync(adapter, ScanTimeout, ct);
             }
-            all = _wlan.GetAccessPoints(adapter.Id);
+            all = await _wlan.GetAccessPointsAsync(adapter, ct);
         }
-        catch (WlanException ex) when (ex.IsLocationDenied)
+        catch (WifiException ex) when (ex.Kind == WifiErrorKind.LocationDenied)
         {
             Publish(new EngineSnapshot
             {
@@ -165,13 +164,13 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
             NoteProblem("Location access is off, so access points can't be read.");
             return;
         }
-        catch (WlanException ex) when (ex.Code == WlanNative.ErrorNdisDot11PowerStateInvalid)
+        catch (WifiException ex) when (ex.Kind == WifiErrorKind.WifiOff)
         {
             Publish(new EngineSnapshot { State = EngineState.WifiOff, Decision = "Wi-Fi is turned off.", LastCheck = DateTime.Now });
             return;
         }
 
-        var connection = _wlan.GetConnection(adapter.Id);
+        var connection = await _wlan.GetConnectionAsync(adapter, ct);
         int nearby = all.Select(a => a.Ssid).Where(s => s.Length > 0).Distinct().Count();
         if (connection is null)
         {
@@ -180,6 +179,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
             {
                 State = EngineState.Disconnected,
                 NearbyNetworks = nearby,
+                CanSwitch = _wlan.CanSwitch,
                 Decision = "Not connected to Wi-Fi. Roamwise starts working once you join a network.",
                 LastCheck = DateTime.Now,
             });
@@ -187,7 +187,8 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         }
 
         _lastProblem = null;
-        var siblings = ReportedRadios.WithReported(SiblingsOf(connection, all, adapter.Id), all, connection.Ssid);
+        int? liveRssi = await _wlan.GetRssiAsync(adapter, ct);
+        var siblings = ReportedRadios.WithReported(SiblingsOf(connection, all, liveRssi), all, connection.Ssid);
         var scored = siblings.Select(ap => ApScorer.Score(ap, _settings, all)).OrderByDescending(s => s.Total).ToList();
         var current = scored.First(s => Mac.Equal(s.Ap.BssidBytes, connection.BssidBytes));
         bool managed = _settings.AppliesTo(connection.Ssid);
@@ -206,6 +207,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
             // Only flagged in the UI once it clears the required improvement.
             Candidate = best is not null && best.Total - current.Total >= _settings.MinImprovementDb ? best : null,
             IsManaged = managed,
+            CanSwitch = _wlan.CanSwitch,
             NearbyNetworks = nearby,
             LastCheck = DateTime.Now,
         };
@@ -214,9 +216,9 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         if (Interlocked.Exchange(ref _manualTarget, null) is string target)
         {
             var chosen = scored.FirstOrDefault(s => s.Ap.Bssid == target);
-            if (chosen is not null && chosen != current)
+            if (chosen is not null && chosen != current && snapshot.CanSwitch)
             {
-                await RoamAsync(adapter.Id, snapshot, current, chosen, manual: true, ct);
+                await RoamAsync(adapter, snapshot, current, chosen, manual: true, ct);
                 return;
             }
         }
@@ -224,7 +226,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         string decision = Decide(snapshot, current, best, out bool roam);
         Publish(snapshot with { Decision = decision });
         if (roam && best is not null)
-            await RoamAsync(adapter.Id, snapshot, current, best, manual: false, ct);
+            await RoamAsync(adapter, snapshot, current, best, manual: false, ct);
     }
 
     private string Decide(EngineSnapshot snap, ApScore current, ApScore? best, out bool roam)
@@ -275,6 +277,12 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
                 : $"{Label(best.Ap)} is only {Gain(best, current)} better. Switching needs +{_settings.MinImprovementDb}.";
         }
 
+        if (!snap.CanSwitch)
+        {
+            ResetStreak();
+            return $"{Label(best.Ap)} is {Gain(best, current)} better, but Roamwise isn't allowed to switch access points yet.";
+        }
+
         if (_streakBssid != best.Ap.Bssid) { _streakBssid = best.Ap.Bssid; _streak = 0; }
         _streak++;
         int remaining = _settings.ConfirmScans - _streak;
@@ -294,7 +302,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         return $"Switching to {Label(best.Ap)} ({Gain(best, current)} better)…";
     }
 
-    private async Task RoamAsync(Guid iface, EngineSnapshot snap, ApScore from, ApScore to, bool manual, CancellationToken ct)
+    private async Task RoamAsync(WifiAdapter adapter, EngineSnapshot snap, ApScore from, ApScore to, bool manual, CancellationToken ct)
     {
         var connection = snap.Connection!;
         Publish(snap with { IsRoaming = true, Candidate = to, Decision = $"Switching to {Label(to.Ap)}…" });
@@ -302,16 +310,16 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         bool attempted;
         try
         {
-            attempted = await _wlan.ConnectToBssidAsync(iface, connection.ProfileName, to.Ap.BssidBytes, ConnectTimeout, ct);
+            attempted = await _wlan.ConnectToBssidAsync(adapter, connection, to.Ap.BssidBytes, ConnectTimeout, ct);
         }
-        catch (WlanException ex)
+        catch (WifiException ex)
         {
             attempted = false;
             NoteProblem(ex.Message);
         }
 
         await Task.Delay(TimeSpan.FromSeconds(1.5), ct);
-        var now = _wlan.GetConnection(iface);
+        var now = await _wlan.GetConnectionAsync(adapter, ct);
         bool success = attempted && now is not null && Mac.Equal(now.BssidBytes, to.Ap.BssidBytes);
 
         _lastRoam = DateTime.Now;
@@ -328,9 +336,9 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
             _log.Add(ActivityKind.RoamFailed, $"Couldn't switch {connection.Ssid} to {Label(to.Ap)}. Skipping it for 15 minutes.");
             if (now is null)
             {
-                // The attempt dropped us; ask Windows to reconnect to the profile normally.
-                try { await _wlan.ConnectToBssidAsync(iface, connection.ProfileName, from.Ap.BssidBytes, ConnectTimeout, ct); }
-                catch (WlanException) { }
+                // The attempt dropped us; go back to the access point we were on.
+                try { await _wlan.ConnectToBssidAsync(adapter, connection, from.Ap.BssidBytes, ConnectTimeout, ct); }
+                catch (WifiException) { }
             }
         }
 
@@ -340,7 +348,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
     }
 
     /// <summary>All BSSIDs broadcasting the connected SSID, one entry each, always including the current one.</summary>
-    private List<AccessPoint> SiblingsOf(WifiConnection connection, IReadOnlyList<AccessPoint> all, Guid iface)
+    private List<AccessPoint> SiblingsOf(WifiConnection connection, IReadOnlyList<AccessPoint> all, int? liveRssi)
     {
         var siblings = all
             .Where(a => a.Ssid == connection.Ssid)
@@ -348,7 +356,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
             .Select(g => g.MaxBy(a => a.Rssi)!)
             .ToList();
 
-        // Windows doesn't catch every radio in every scan. Keep ones heard recently, marked stale, so the list
+        // Scans don't catch every radio every time. Keep ones heard recently, marked stale, so the list
         // doesn't flicker; stale radios are shown but never picked automatically.
         var now = DateTime.Now;
         var keepFor = TimeSpan.FromSeconds(Math.Max(75, _settings.ScanIntervalSeconds * 2.5));
@@ -356,7 +364,6 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         foreach (var key in _recent.Where(kv => now - kv.Value.seen > keepFor || kv.Value.ap.Ssid != connection.Ssid).Select(kv => kv.Key).ToList())
             _recent.Remove(key);
 
-        int? liveRssi = _wlan.GetRssi(iface);
         string currentBssid = Mac.Format(connection.BssidBytes);
         foreach (var (bssid, (ap, _)) in _recent)
             if (!siblings.Any(s => s.Bssid == bssid))
@@ -387,32 +394,27 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
     }
 
     /// <summary>Average traffic on the Wi-Fi adapter since the previous check, in Mbps.</summary>
-    private void MeasureTraffic(Guid iface)
+    private void MeasureTraffic(WifiAdapter adapter)
     {
-        var nic = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
-            .FirstOrDefault(n => Guid.TryParse(n.Id, out var id) && id == iface);
-        if (nic is null) { _mbps = 0; return; }
-        var stats = nic.GetIPStatistics();
-        long bytes = stats.BytesReceived + stats.BytesSent;
+        if (_wlan.TrafficBytes(adapter) is not long bytes) { _mbps = 0; return; }
         var now = DateTime.Now;
         if (_traffic is { } prev && now > prev.at && bytes >= prev.bytes)
             _mbps = (bytes - prev.bytes) * 8 / 1_000_000.0 / (now - prev.at).TotalSeconds;
         _traffic = (bytes, now);
     }
 
-    private void ApplyLowLatency(Guid iface)
+    private void ApplyLowLatency(WifiAdapter adapter)
     {
-        bool want = _settings.LowLatencyMode;
-        if (_lowLatencyApplied is { } applied && applied.iface == iface && applied.on == want) return;
+        bool want = _settings.LowLatencyMode && _wlan.SupportsLowLatency;
+        if (_lowLatencyApplied is { } applied && applied.iface == adapter.Id && applied.on == want) return;
 
-        uint a = _wlan.SetOption(iface, WlanIntfOpcodeOption.BackgroundScan, !want);
-        uint b = _wlan.SetOption(iface, WlanIntfOpcodeOption.MediaStreaming, want);
-        _lowLatencyApplied = (iface, want);
+        string? problem = _wlan.SetLowLatency(adapter, want);
+        _lowLatencyApplied = (adapter.Id, want);
 
-        if (want && (a != 0 || b != 0))
-            _log.Add(ActivityKind.Problem, $"Low-latency mode couldn't be fully applied (errors {a}, {b}).");
+        if (want && problem is not null)
+            _log.Add(ActivityKind.Problem, problem);
         else if (want)
-            _log.Add(ActivityKind.Info, "Low-latency mode on: Windows background scans paused.");
+            _log.Add(ActivityKind.Info, "Low-latency mode on: background scans paused.");
     }
 
     private void Publish(EngineSnapshot s)
@@ -449,17 +451,10 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
 
     private static int QualityToRssi(int quality) => quality / 2 - 100;
 
-    private static bool OnBattery() =>
-        System.Windows.Forms.SystemInformation.PowerStatus.PowerLineStatus == System.Windows.Forms.PowerLineStatus.Offline;
-
     public void Dispose()
     {
         _stop.Cancel();
-        if (_lowLatencyApplied is { on: true } applied)
-        {
-            _wlan.SetOption(applied.iface, WlanIntfOpcodeOption.BackgroundScan, true);
-            _wlan.SetOption(applied.iface, WlanIntfOpcodeOption.MediaStreaming, false);
-        }
+        if (_lowLatencyApplied is { on: true } && _adapter is not null) _wlan.SetLowLatency(_adapter, false);
         _wlan.Dispose();
     }
 }

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Roamwise
+GenericName=Wi-Fi access point switcher
+Comment=Keeps you on the best Wi-Fi access point
+Exec=roamwise
+Icon=roamwise
+Terminal=false
+Categories=Network;Utility;
+Keywords=wifi;wireless;roaming;access point;
+StartupWMClass=roamwise

@@ -1,4 +1,4 @@
-# Regenerates src/Roamwise/Assets/Roamwise.ico (multi-size, PNG-compressed entries).
+# Regenerates src/Roamwise/Assets/Roamwise.ico (multi-size, PNG-compressed entries) and the Linux app's PNG.
 # Run from the repo root: powershell -ExecutionPolicy Bypass -File tools/make-icon.ps1
 Add-Type -AssemblyName System.Drawing
 
@@ -63,3 +63,9 @@ for ($i = 0; $i -lt $sizes.Count; $i++) {
 foreach ($f in $frames) { $bw.Write($f) }
 $bw.Close()
 Write-Host "Wrote $out"
+
+# The Linux app and its AppImage use a 256 px PNG of the same artwork.
+$png = Join-Path $PSScriptRoot "..\src\Roamwise.Linux\Assets\roamwise.png"
+New-Item -ItemType Directory -Force (Split-Path $png) | Out-Null
+[System.IO.File]::WriteAllBytes($png, $frames[$sizes.Count - 1])
+Write-Host "Wrote $png"

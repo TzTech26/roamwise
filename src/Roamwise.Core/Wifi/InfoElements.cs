@@ -4,7 +4,7 @@ namespace Roamwise.Wifi;
 /// Reads the 802.11 information elements an AP puts in its beacons: BSS Load (how busy the AP is),
 /// the HT/VHT/HE/EHT operation elements (channel width), and the places vendors put the AP's name and model.
 /// </summary>
-internal static class InfoElements
+public static class InfoElements
 {
     private const byte BssLoad = 11;
     private const byte HtOperation = 61;
@@ -39,7 +39,7 @@ internal static class InfoElements
 
     public readonly record struct Parsed(int WidthMHz, int? ChannelUtilization, int? StationCount,
         string? Name, string? Manufacturer, string? Model, byte[]? DeviceMac, IReadOnlyList<string> VendorElements,
-        IReadOnlyList<ReportedNeighbor> Neighbors);
+        IReadOnlyList<ReportedNeighbor> Neighbors, WifiGeneration Generation = WifiGeneration.Legacy);
 
     public static Parsed Parse(ReadOnlySpan<byte> ies)
     {
@@ -47,6 +47,7 @@ internal static class InfoElements
         int? utilization = null, stations = null;
         int? vhtWidth = null, heWidth = null, ehtWidth = null;
         bool htForty = false;
+        var generation = WifiGeneration.Legacy;
         string? ccxName = null, vendorName = null, wpsName = null, manufacturer = null, model = null;
         byte[]? deviceMac = null;
         var ouis = new List<string>();
@@ -68,11 +69,13 @@ internal static class InfoElements
                     break;
 
                 case HtOperation when len >= 2:
+                    generation = Max(generation, WifiGeneration.Wifi4);
                     // Secondary channel offset (bits 0-1) set and STA channel width (bit 2) = any width.
                     htForty = (data[1] & 0x03) != 0 && (data[1] & 0x04) != 0;
                     break;
 
                 case VhtOperation when len >= 3:
+                    generation = Max(generation, WifiGeneration.Wifi5);
                     vhtWidth = data[0] switch
                     {
                         1 when data[2] != 0 && Math.Abs(data[2] - data[1]) == 8 => 160,
@@ -83,10 +86,12 @@ internal static class InfoElements
                     break;
 
                 case Extension when len >= 1 && data[0] == ExtHeOperation:
+                    generation = Max(generation, WifiGeneration.Wifi6);
                     heWidth = ParseHe6GhzWidth(data[1..]);
                     break;
 
                 case Extension when len >= 1 && data[0] == ExtEhtOperation:
+                    generation = Max(generation, WifiGeneration.Wifi7);
                     ehtWidth = ParseEhtWidth(data[1..]);
                     break;
 
@@ -125,7 +130,9 @@ internal static class InfoElements
         if (wpsName is not null && (IsGeneric(wpsName) || string.Equals(wpsName, manufacturer, StringComparison.OrdinalIgnoreCase)))
             wpsName = null;
         string? name = ccxName ?? vendorName ?? wpsName;
-        return new Parsed(width, utilization, stations, name, manufacturer, model, deviceMac, ouis, neighbors);
+        return new Parsed(width, utilization, stations, name, manufacturer, model, deviceMac, ouis, neighbors, generation);
+
+        static WifiGeneration Max(WifiGeneration a, WifiGeneration b) => a > b ? a : b;
     }
 
     /// <summary>

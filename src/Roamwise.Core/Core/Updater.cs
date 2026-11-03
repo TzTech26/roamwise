@@ -1,7 +1,5 @@
 using System.Diagnostics;
-using System.IO;
 using System.IO.Compression;
-using System.Net.Http;
 using System.Net.Http.Json;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -14,7 +12,8 @@ public sealed record UpdateInfo(Version Version, string Tag, string Notes, strin
 
 /// <summary>
 /// Updates from the project's GitHub Releases. Downloads only from github.com, checks the SHA-256 published
-/// with the release, swaps the exe in place (Windows allows renaming a running exe) and restarts.
+/// with the release, swaps the program file in place (a running program can be renamed on Windows and Linux)
+/// and restarts. Windows releases are a zip holding Roamwise.exe; Linux releases are the AppImage itself.
 /// </summary>
 public sealed class Updater
 {
@@ -24,11 +23,13 @@ public sealed class Updater
     private readonly AppSettings _settings;
     private readonly ActivityLog _log;
 
-    public static Version CurrentVersion { get; } = Normalize(Assembly.GetExecutingAssembly().GetName().Version ?? new Version(1, 0, 0));
+    // The app's version, not this library's: both get the same number from Directory.Build.props, but be explicit.
+    public static Version CurrentVersion { get; } =
+        Normalize((Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly()).GetName().Version ?? new Version(1, 0, 0));
 
     public UpdateInfo? Available { get; private set; }
     public event Action<UpdateInfo>? UpdateAvailable;
-    /// <summary>Raised after the new exe has started; the app should exit.</summary>
+    /// <summary>Raised after the new copy has started; the app should exit.</summary>
     public event Action? QuitRequested;
 
     public Updater(AppSettings settings, ActivityLog log)
@@ -37,21 +38,27 @@ public sealed class Updater
         _log = log;
     }
 
-    private static string AssetName =>
-        $"Roamwise-{(RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "win-arm64" : "win-x64")}.zip";
+    private static string Arch => RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "arm64" : "x64";
+
+    private static string AssetName => OperatingSystem.IsWindows() ? $"Roamwise-win-{Arch}.zip" : $"Roamwise-linux-{Arch}.AppImage";
+
+    /// <summary>The file an update replaces: the exe on Windows, the AppImage on Linux.</summary>
+    private static string? TargetPath => OperatingSystem.IsWindows()
+        ? Environment.ProcessPath
+        : Environment.GetEnvironmentVariable("APPIMAGE") is { Length: > 0 } appImage ? appImage : null;
 
     /// <summary>
-    /// Only the published single-file exe can replace itself. A development build (Roamwise.dll beside the exe)
-    /// still checks, but sends you to the releases page instead.
+    /// Only the published single-file exe (Windows) or an AppImage (Linux) can replace itself. Other builds still check,
+    /// but send you to the releases page instead.
     /// </summary>
-    public static bool CanSelfUpdate =>
-        Environment.ProcessPath is string exe && !File.Exists(Path.Combine(Path.GetDirectoryName(exe)!, "Roamwise.dll"));
+    public static bool CanSelfUpdate => TargetPath is string target && (!OperatingSystem.IsWindows()
+        || !File.Exists(Path.Combine(Path.GetDirectoryName(target)!, "Roamwise.dll")));
 
-    /// <summary>Removes the previous exe left behind by an update.</summary>
+    /// <summary>Removes the previous copy left behind by an update.</summary>
     public static void CleanUpAfterUpdate()
     {
-        if (Environment.ProcessPath is not string exe) return;
-        try { File.Delete(exe + ".old"); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        if (TargetPath is not string target) return;
+        try { File.Delete(target + ".old"); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
     public async Task<UpdateInfo?> CheckAsync(CancellationToken ct = default)
@@ -99,11 +106,13 @@ public sealed class Updater
         }
     }
 
-    /// <summary>Downloads, verifies and swaps in the new exe, then starts it. Returns an error sentence on failure.</summary>
+    /// <summary>Downloads, verifies and swaps in the new copy, then starts it. Returns an error sentence on failure.</summary>
     public async Task<string?> InstallAsync(UpdateInfo update, CancellationToken ct = default)
     {
-        if (!CanSelfUpdate) return "This copy of Roamwise was built from source, so it can't update itself. Download the release instead.";
-        string exe = Environment.ProcessPath!;
+        if (!CanSelfUpdate || TargetPath is not string target)
+            return OperatingSystem.IsWindows()
+                ? "This copy of Roamwise was built from source, so it can't update itself. Download the release instead."
+                : "This copy of Roamwise isn't running from its AppImage, so it can't update itself. Download the release instead.";
         string work = Path.Combine(Path.GetTempPath(), $"Roamwise-update-{update.Version}");
         try
         {
@@ -112,42 +121,51 @@ public sealed class Updater
             if (update.SumsUrl is null) return "This release has no checksum file, so Roamwise won't install it automatically.";
 
             Directory.CreateDirectory(work);
-            string zipPath = Path.Combine(work, AssetName);
+            string download = Path.Combine(work, AssetName);
             using (var http = Client())
             {
-                await File.WriteAllBytesAsync(zipPath, await http.GetByteArrayAsync(update.ZipUrl, ct), ct);
+                await File.WriteAllBytesAsync(download, await http.GetByteArrayAsync(update.ZipUrl, ct), ct);
                 string sums = await http.GetStringAsync(update.SumsUrl, ct);
                 string? expected = sums.Split('\n')
                     .Select(l => l.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries))
                     .FirstOrDefault(p => p.Length == 2 && p[1].TrimStart('*') == AssetName)?[0];
-                string actual = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(zipPath, ct)));
+                string actual = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(download, ct)));
                 if (expected is null || !actual.Equals(expected, StringComparison.OrdinalIgnoreCase))
                     return "The download didn't match the published checksum, so it wasn't installed.";
             }
 
-            string extracted = Path.Combine(work, "out");
-            if (Directory.Exists(extracted)) Directory.Delete(extracted, true);
-            ZipFile.ExtractToDirectory(zipPath, extracted);
-            string newExe = Path.Combine(extracted, "Roamwise.exe");
-            if (!File.Exists(newExe)) return "The download didn't contain Roamwise.exe.";
+            string newCopy = download;
+            if (OperatingSystem.IsWindows())
+            {
+                string extracted = Path.Combine(work, "out");
+                if (Directory.Exists(extracted)) Directory.Delete(extracted, true);
+                ZipFile.ExtractToDirectory(download, extracted);
+                newCopy = Path.Combine(extracted, "Roamwise.exe");
+                if (!File.Exists(newCopy)) return "The download didn't contain Roamwise.exe.";
+            }
 
-            // Swap: the running exe can be renamed but not overwritten.
-            File.Delete(exe + ".old");
-            File.Move(exe, exe + ".old");
-            try { File.Copy(newExe, exe); }
-            catch { File.Move(exe + ".old", exe); throw; }
+            // Swap: the running copy can be renamed but not overwritten.
+            File.Delete(target + ".old");
+            File.Move(target, target + ".old");
+            try
+            {
+                File.Copy(newCopy, target);
+                if (!OperatingSystem.IsWindows())
+                    File.SetUnixFileMode(target, File.GetUnixFileMode(target + ".old") | UnixFileMode.UserExecute);
+            }
+            catch { File.Move(target + ".old", target, overwrite: true); throw; }
 
             _log.Add(ActivityKind.Info, $"Updated to Roamwise {update.Version}.");
             // The new copy waits for this one to exit before taking over the tray.
-            Process.Start(new ProcessStartInfo(exe, $"--background --updated --wait {Environment.ProcessId}") { UseShellExecute = false });
+            Process.Start(new ProcessStartInfo(target, $"--background --updated --wait {Environment.ProcessId}") { UseShellExecute = false });
             QuitRequested?.Invoke();
             return null;
         }
         catch (UnauthorizedAccessException)
         {
-            return $"Roamwise can't write to {Path.GetDirectoryName(exe)}. Move it to a folder you own (like Documents) or download the update yourself.";
+            return $"Roamwise can't write to {Path.GetDirectoryName(target)}. Move it to a folder you own or download the update yourself.";
         }
-        catch (Exception ex) when (ex is IOException or HttpRequestException or InvalidDataException)
+        catch (Exception ex) when (ex is IOException or HttpRequestException or InvalidDataException or System.ComponentModel.Win32Exception)
         {
             return $"The update failed: {ex.Message}";
         }

@@ -1,0 +1,11 @@
+<Project>
+  <!-- Shared by the Windows app, the Linux app and the core library. Release builds override Version from the git tag. -->
+  <PropertyGroup>
+    <Version>1.2.0</Version>
+    <Product>Roamwise</Product>
+    <Copyright>Copyright © 2026</Copyright>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+</Project>

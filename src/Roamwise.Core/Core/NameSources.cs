@@ -2,7 +2,6 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -45,12 +44,17 @@ public sealed partial class NameSources
 
     private readonly AppSettings _settings;
     private readonly ActivityLog _log;
+    private readonly ISecretStore _secrets;
 
-    public NameSources(AppSettings settings, ActivityLog log)
+    public NameSources(AppSettings settings, ActivityLog log, ISecretStore secrets)
     {
         _settings = settings;
         _log = log;
+        _secrets = secrets;
     }
+
+    /// <summary>Where the key or password goes, for the settings page.</summary>
+    public string SecretDescription => _secrets.Description;
 
     public bool IsConfigured => _settings.NameSource switch
     {
@@ -60,11 +64,18 @@ public sealed partial class NameSources
         _ => _settings.ControllerSecretProtected.Length > 0 && (_settings.ControllerAddress.Length > 0 || _settings.NameSource == NameSourceKind.Mist),
     };
 
-    public static string Protect(string secret) =>
-        Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(secret.Trim()), null, DataProtectionScope.CurrentUser));
+    /// <summary>Stores a new key or password for the current source, replacing the old one.</summary>
+    public async Task SaveSecretAsync(string secret)
+    {
+        await ForgetSecretAsync();
+        _settings.ControllerSecretProtected = await _secrets.SaveAsync(secret.Trim());
+    }
 
-    private static string Unprotect(string stored) =>
-        Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(stored), null, DataProtectionScope.CurrentUser));
+    public async Task ForgetSecretAsync()
+    {
+        if (_settings.ControllerSecretProtected.Length > 0) await _secrets.ForgetAsync(_settings.ControllerSecretProtected);
+        _settings.ControllerSecretProtected = "";
+    }
 
     /// <summary>Fetches the device list and stores it. Returns a sentence for the settings page.</summary>
     public async Task<(bool ok, string message)> SyncAsync(CancellationToken ct = default)
@@ -79,8 +90,9 @@ public sealed partial class NameSources
         string secret = "";
         if (_settings.ControllerSecretProtected.Length > 0)
         {
-            try { secret = Unprotect(_settings.ControllerSecretProtected); }
-            catch (CryptographicException) { return (false, "The saved key can't be read on this Windows account. Enter it again."); }
+            if (await _secrets.ReadAsync(_settings.ControllerSecretProtected) is not string s)
+                return (false, "The saved key can't be read on this account. Enter it again.");
+            secret = s;
         }
 
         try

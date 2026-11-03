@@ -1,0 +1,223 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="using:Roamwise.Linux.Ui"
+             x:Class="Roamwise.Linux.App"
+             Name="Roamwise"
+             RequestedThemeVariant="Default">
+
+    <Application.Resources>
+        <ResourceDictionary>
+            <!-- Same palette as the Windows app (Themes/Dark.xaml and Light.xaml there), made opaque: no Mica here. -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="Rw.Window" Color="#1F2228" />
+                    <SolidColorBrush x:Key="Rw.Sidebar" Color="#1A1D22" />
+                    <SolidColorBrush x:Key="Rw.Footer" Color="#191B20" />
+                    <SolidColorBrush x:Key="Rw.Surface" Color="#2A2D33" />
+                    <SolidColorBrush x:Key="Rw.SurfaceHover" Color="#30343A" />
+                    <SolidColorBrush x:Key="Rw.CardFill" Color="#26292F" />
+                    <SolidColorBrush x:Key="Rw.CardStroke" Color="#15171B" />
+                    <SolidColorBrush x:Key="Rw.Line" Color="#33373E" />
+                    <SolidColorBrush x:Key="Rw.Text" Color="#E9EBEE" />
+                    <SolidColorBrush x:Key="Rw.TextMuted" Color="#9AA1AA" />
+                    <SolidColorBrush x:Key="Rw.TextFaint" Color="#6B727C" />
+                    <SolidColorBrush x:Key="Rw.Track" Color="#34383F" />
+                    <SolidColorBrush x:Key="Rw.BarNeutral" Color="#79818B" />
+                    <SolidColorBrush x:Key="Rw.Strong" Color="#3FB68B" />
+                    <SolidColorBrush x:Key="Rw.Fair" Color="#D9A43B" />
+                    <SolidColorBrush x:Key="Rw.Weak" Color="#E0705C" />
+                    <SolidColorBrush x:Key="Rw.Accent" Color="#60CDFF" />
+                    <SolidColorBrush x:Key="Rw.AccentText" Color="#99EBFF" />
+                    <SolidColorBrush x:Key="Rw.AccentSoft" Color="#7060CDFF" />
+                    <SolidColorBrush x:Key="Rw.AccentBanner" Color="#2560CDFF" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="Rw.Window" Color="#F3F4F6" />
+                    <SolidColorBrush x:Key="Rw.Sidebar" Color="#EBECEF" />
+                    <SolidColorBrush x:Key="Rw.Footer" Color="#E9EAED" />
+                    <SolidColorBrush x:Key="Rw.Surface" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="Rw.SurfaceHover" Color="#F7F7F8" />
+                    <SolidColorBrush x:Key="Rw.CardFill" Color="#FBFBFC" />
+                    <SolidColorBrush x:Key="Rw.CardStroke" Color="#E1E3E7" />
+                    <SolidColorBrush x:Key="Rw.Line" Color="#E6E7EA" />
+                    <SolidColorBrush x:Key="Rw.Text" Color="#1B1E23" />
+                    <SolidColorBrush x:Key="Rw.TextMuted" Color="#5C636D" />
+                    <SolidColorBrush x:Key="Rw.TextFaint" Color="#8A919B" />
+                    <SolidColorBrush x:Key="Rw.Track" Color="#E4E5E8" />
+                    <SolidColorBrush x:Key="Rw.BarNeutral" Color="#9198A2" />
+                    <SolidColorBrush x:Key="Rw.Strong" Color="#1F8F68" />
+                    <SolidColorBrush x:Key="Rw.Fair" Color="#A97814" />
+                    <SolidColorBrush x:Key="Rw.Weak" Color="#BF4632" />
+                    <SolidColorBrush x:Key="Rw.Accent" Color="#005FB8" />
+                    <SolidColorBrush x:Key="Rw.AccentText" Color="#003E92" />
+                    <SolidColorBrush x:Key="Rw.AccentSoft" Color="#70005FB8" />
+                    <SolidColorBrush x:Key="Rw.AccentBanner" Color="#1A005FB8" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <!-- The logo, same artwork as the Windows app (64-unit grid). -->
+            <DrawingImage x:Key="Rw.Logo">
+                <DrawingGroup>
+                    <GeometryDrawing Brush="#1F2A37" Geometry="M16,2 H48 A14,14 0 0 1 62,16 V48 A14,14 0 0 1 48,62 H16 A14,14 0 0 1 2,48 V16 A14,14 0 0 1 16,2 Z" />
+                    <GeometryDrawing Geometry="M23.515,38.515 A12,12 0 0 1 40.485,38.515 M15.029,30.029 A24,24 0 0 1 48.971,30.029">
+                        <GeometryDrawing.Pen>
+                            <Pen Brush="#E9EBEE" Thickness="5" LineCap="Round" />
+                        </GeometryDrawing.Pen>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#E9EBEE" Geometry="M27.5,47 A4.5,4.5 0 1 0 36.5,47 A4.5,4.5 0 1 0 27.5,47 Z" />
+                    <GeometryDrawing Brush="#3FB68B" Geometry="M39,17 A7,7 0 1 0 53,17 A7,7 0 1 0 39,17 Z" />
+                </DrawingGroup>
+            </DrawingImage>
+
+            <!-- Small line icons drawn on a 16-unit grid, stroked in the text color. -->
+            <StreamGeometry x:Key="Rw.Icon.Wifi">M1.5,6.5 A9.5,9.5 0 0 1 14.5,6.5 M4,9.2 A6,6 0 0 1 12,9.2 M6.4,11.8 A2.6,2.6 0 0 1 9.6,11.8</StreamGeometry>
+            <StreamGeometry x:Key="Rw.Icon.Gear">M2,4.5 H4 M7.5,4.5 H14 M2,11.5 H8.5 M12,11.5 H14 M5.75,2.75 A1.75,1.75 0 1 0 5.75,6.25 A1.75,1.75 0 1 0 5.75,2.75 Z M10.25,9.75 A1.75,1.75 0 1 0 10.25,13.25 A1.75,1.75 0 1 0 10.25,9.75 Z</StreamGeometry>
+            <StreamGeometry x:Key="Rw.Icon.Pencil">M10.5,2.5 L13.5,5.5 L5.5,13.5 L2.5,13.5 L2.5,10.5 Z M9,4 L12,7</StreamGeometry>
+            <StreamGeometry x:Key="Rw.Icon.Remove">M3.5,4.5 H12.5 M6.5,4.5 V3 H9.5 V4.5 M4.5,4.5 L5.2,13.5 H10.8 L11.5,4.5</StreamGeometry>
+            <StreamGeometry x:Key="Rw.Icon.Add">M8,3 V13 M3,8 H13</StreamGeometry>
+            <StreamGeometry x:Key="Rw.Icon.Update">M8,2.5 V10 M4.8,7 L8,10.2 L11.2,7 M3,13.5 H13</StreamGeometry>
+            <StreamGeometry x:Key="Rw.Icon.Lock">M4,7.5 H12 V13.5 H4 Z M5.5,7.5 V5.5 A2.5,2.5 0 0 1 10.5,5.5 V7.5</StreamGeometry>
+        </ResourceDictionary>
+    </Application.Resources>
+
+    <Application.Styles>
+        <FluentTheme>
+            <FluentTheme.Palettes>
+                <ColorPaletteResources x:Key="Dark" Accent="#60CDFF" RegionColor="#1F2228" />
+                <ColorPaletteResources x:Key="Light" Accent="#005FB8" RegionColor="#F3F4F6" />
+            </FluentTheme.Palettes>
+        </FluentTheme>
+
+        <Style Selector="TextBlock.caption">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource Rw.TextMuted}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.body">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="Foreground" Value="{DynamicResource Rw.Text}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="LineHeight" Value="20" />
+        </Style>
+        <Style Selector="TextBlock.subtitle">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource Rw.Text}" />
+        </Style>
+        <Style Selector="TextBlock.pageTitle">
+            <Setter Property="FontSize" Value="28" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource Rw.Text}" />
+        </Style>
+        <Style Selector="TextBlock.groupHeading">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource Rw.Text}" />
+            <Setter Property="Margin" Value="2,28,0,8" />
+        </Style>
+        <Style Selector="TextBlock.sliderValue">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="Foreground" Value="{DynamicResource Rw.TextMuted}" />
+            <Setter Property="MinWidth" Value="76" />
+            <Setter Property="TextAlignment" Value="Right" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,0,12,0" />
+        </Style>
+
+        <Style Selector="Border.card">
+            <Setter Property="Background" Value="{DynamicResource Rw.CardFill}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Rw.CardStroke}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+        <Style Selector="Border.divider">
+            <Setter Property="Height" Value="1" />
+            <Setter Property="Background" Value="{DynamicResource Rw.Line}" />
+        </Style>
+
+        <Style Selector="Button">
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="12,5,12,6" />
+        </Style>
+        <Style Selector="Button.link">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource Rw.AccentText}" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.link:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource Rw.Accent}" />
+        </Style>
+        <Style Selector="Button.icon">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="7" />
+            <Setter Property="MinWidth" Value="32" />
+            <Setter Property="MinHeight" Value="32" />
+        </Style>
+        <!-- Line icons: geometry from the Rw.Icon.* resources, stroked rather than filled. -->
+        <Style Selector="Path.line">
+            <Setter Property="Width" Value="16" />
+            <Setter Property="Height" Value="16" />
+            <Setter Property="Stroke" Value="{DynamicResource Rw.Text}" />
+            <Setter Property="StrokeThickness" Value="1.5" />
+            <Setter Property="StrokeLineCap" Value="Round" />
+            <Setter Property="StrokeJoin" Value="Round" />
+            <Setter Property="Stretch" Value="None" />
+        </Style>
+
+        <!-- Segmented choice: radio buttons drawn as one pill group. -->
+        <Style Selector="RadioButton.segment">
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Name="Pill" Background="Transparent" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter Content="{TemplateBinding Content}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                          Foreground="{TemplateBinding Foreground}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+            <Setter Property="Padding" Value="14,5,14,6" />
+            <Setter Property="Foreground" Value="{DynamicResource Rw.TextMuted}" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="RadioButton.segment:pointerover /template/ Border#Pill">
+            <Setter Property="Background" Value="{DynamicResource Rw.SurfaceHover}" />
+        </Style>
+        <Style Selector="RadioButton.segment:checked /template/ Border#Pill">
+            <Setter Property="Background" Value="{DynamicResource Rw.Surface}" />
+        </Style>
+        <Style Selector="RadioButton.segment:checked">
+            <Setter Property="Foreground" Value="{DynamicResource Rw.Text}" />
+        </Style>
+        <Style Selector="Border.segments">
+            <Setter Property="Background" Value="{DynamicResource Rw.Track}" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="3" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+        </Style>
+
+        <!-- One row in a settings card: title and description on the left, a control on the right. -->
+        <Style Selector="ui|SettingRow">
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Grid ColumnDefinitions="*,Auto" Margin="16,12" MinHeight="40">
+                        <StackPanel VerticalAlignment="Center" Margin="0,0,24,0">
+                            <TextBlock Classes="body" Text="{TemplateBinding Header}" />
+                            <TextBlock Classes="caption" Margin="0,2,0,0" Text="{TemplateBinding Description}"
+                                       IsVisible="{TemplateBinding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        </StackPanel>
+                        <ContentPresenter Grid.Column="1" Content="{TemplateBinding Content}" VerticalAlignment="Center" />
+                    </Grid>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+
+        <Style Selector="ToggleSwitch">
+            <Setter Property="OnContent" Value="" />
+            <Setter Property="OffContent" Value="" />
+            <Setter Property="MinWidth" Value="0" />
+        </Style>
+    </Application.Styles>
+</Application>

@@ -2,9 +2,10 @@ namespace Roamwise.Wifi;
 
 public enum WifiBand { Unknown, Ghz24, Ghz5, Ghz6 }
 
-public enum WifiGeneration { Legacy, Wifi4, Wifi5, Wifi6, Wifi7 }
+/// <summary>Unknown when the system doesn't report the PHY type (NetworkManager without raw beacon data).</summary>
+public enum WifiGeneration { Unknown = -1, Legacy, Wifi4, Wifi5, Wifi6, Wifi7 }
 
-public sealed record WifiAdapter(Guid Id, string Description, bool IsConnected);
+public sealed record WifiAdapter(string Id, string Name, string Description, bool IsConnected);
 
 /// <summary>One access point radio (BSSID) seen in a scan.</summary>
 public sealed record AccessPoint
@@ -109,6 +110,7 @@ public static class WifiText
         WifiGeneration.Wifi5 => "Wi-Fi 5",
         WifiGeneration.Wifi6 => "Wi-Fi 6",
         WifiGeneration.Wifi7 => "Wi-Fi 7",
+        WifiGeneration.Unknown => "Unknown",
         _ => "Legacy Wi-Fi",
     };
 

@@ -39,7 +39,7 @@ public partial class App : Application
 
         if (Array.IndexOf(e.Args, "--diagnose") is int di && di >= 0)
         {
-            await Diagnostics.WriteReportAsync(e.Args.ElementAtOrDefault(di + 1) ?? "roamwise-diagnostics.txt");
+            await Diagnostics.WriteReportAsync(e.Args.ElementAtOrDefault(di + 1) ?? "roamwise-diagnostics.txt", () => new WlanClient());
             Shutdown();
             return;
         }
@@ -72,7 +72,7 @@ public partial class App : Application
 
         try
         {
-            _engine = demo ? new DemoEngine(Settings) : new RoamEngine(Settings, _log);
+            _engine = demo ? new DemoEngine(Settings) : new RoamEngine(Settings, _log, new WlanClient());
         }
         catch (WlanException ex)
         {
@@ -81,7 +81,7 @@ public partial class App : Application
             return;
         }
 
-        _names = new NameSources(Settings, _log);
+        _names = new NameSources(Settings, _log, new DpapiSecretStore());
         _updater = new Updater(Settings, _log);
         _updater.QuitRequested += () => Dispatcher.BeginInvoke(Quit);
 

@@ -41,22 +41,59 @@ jobs:
           name: Roamwise-${{ matrix.rid }}
           path: Roamwise-${{ matrix.rid }}.zip
 
+  linux:
+    strategy:
+      matrix:
+        include:
+          - rid: linux-x64
+            runner: ubuntu-latest
+          - rid: linux-arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then echo "VERSION_ARG=-p:Version=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"; fi
+
+      - name: Build AppImage
+        run: |
+          sudo apt-get update -q && sudo apt-get install -yq file
+          bash tools/build-appimage.sh ${{ matrix.rid }} $VERSION_ARG
+
+      # The Wi-Fi code against mock NetworkManager and wpa_supplicant services on a private bus.
+      - name: Test against mock services
+        run: |
+          sudo apt-get install -yq python3-dbusmock dbus-x11
+          bash tests/linux/run.sh out/${{ matrix.rid }}/roamwise
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Roamwise-${{ matrix.rid }}
+          path: Roamwise-${{ matrix.rid }}.AppImage
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
 
-      # The in-app updater refuses to install a zip whose hash isn't listed here.
+      # The in-app updater refuses to install a download whose hash isn't listed here.
       - name: Checksums
-        run: sha256sum Roamwise-*.zip > SHA256SUMS.txt
+        run: sha256sum Roamwise-*.zip Roamwise-*.AppImage > SHA256SUMS.txt
 
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             Roamwise-*.zip
+            Roamwise-*.AppImage
             SHA256SUMS.txt
           generate_release_notes: true

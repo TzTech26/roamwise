@@ -4,12 +4,20 @@ using Roamwise.Native;
 
 namespace Roamwise.Wifi;
 
-public sealed class WlanException(uint code, string operation) : Exception(Describe(code, operation))
+public sealed class WlanException(uint code, string operation) : WifiException(KindOf(code), Describe(code, operation))
 {
     public uint Code { get; } = code;
 
     /// <summary>Windows blocks Wi-Fi scan results when location access is off for desktop apps.</summary>
     public bool IsLocationDenied => Code == WlanNative.ErrorAccessDenied;
+
+    private static WifiErrorKind KindOf(uint code) => code switch
+    {
+        WlanNative.ErrorAccessDenied => WifiErrorKind.LocationDenied,
+        WlanNative.ErrorServiceNotActive => WifiErrorKind.ServiceDown,
+        WlanNative.ErrorNdisDot11PowerStateInvalid => WifiErrorKind.WifiOff,
+        _ => WifiErrorKind.Other,
+    };
 
     private static string Describe(uint code, string op) => code switch
     {
@@ -21,7 +29,7 @@ public sealed class WlanException(uint code, string operation) : Exception(Descr
 }
 
 /// <summary>Managed wrapper over the Native Wifi API. Thread-safe for the calls Roamwise makes.</summary>
-public sealed class WlanClient : IDisposable
+public sealed class WlanClient : IWifiBackend
 {
     private readonly IntPtr _handle;
     private readonly WlanNative.WlanNotificationCallback _callback; // kept alive for the native side
@@ -29,7 +37,7 @@ public sealed class WlanClient : IDisposable
     private readonly List<Waiter> _waiters = [];
 
     /// <summary>Raised on a thread-pool thread when the adapter connects, disconnects or roams.</summary>
-    public event Action<Guid>? ConnectionChanged;
+    public event Action? ConnectionChanged;
 
     public WlanClient()
     {
@@ -50,7 +58,8 @@ public sealed class WlanClient : IDisposable
             for (int i = 0; i < count; i++)
             {
                 var info = items[i];
-                result.Add(new WifiAdapter(info.InterfaceGuid, new string(info.Description), info.State == WlanInterfaceState.Connected));
+                string description = new(info.Description);
+                result.Add(new WifiAdapter(info.InterfaceGuid.ToString(), description, description, info.State == WlanInterfaceState.Connected));
             }
             return result;
         }
@@ -252,7 +261,7 @@ public sealed class WlanClient : IDisposable
                         n.Code is (int)WlanNotificationAcm.ConnectionComplete or (int)WlanNotificationAcm.Disconnected
                             or (int)WlanNotificationAcm.InterfaceArrival or (int)WlanNotificationAcm.InterfaceRemoval)
                        || (n.Source == WlanNotificationSource.Msm && n.Code == (int)WlanNotificationMsm.RoamingEnd);
-        if (changed) ConnectionChanged?.Invoke(n.InterfaceGuid);
+        if (changed) ConnectionChanged?.Invoke();
     }
 
     private static unsafe string DecodeSsid(Dot11Ssid* s)
@@ -265,6 +274,54 @@ public sealed class WlanClient : IDisposable
     {
         if (rc != WlanNative.ErrorSuccess) throw new WlanException(rc, op);
     }
+
+    // ---- IWifiBackend: the engine's view, keyed by adapter ----
+
+    public bool CanSwitch => true;
+    public bool SupportsLowLatency => true;
+
+    private static Guid Id(WifiAdapter a) => Guid.Parse(a.Id);
+
+    public Task<IReadOnlyList<WifiAdapter>> GetAdaptersAsync(CancellationToken ct) => Task.FromResult(GetAdapters());
+
+    public Task ScanAsync(WifiAdapter adapter, TimeSpan timeout, CancellationToken ct) => ScanAsync(Id(adapter), timeout, ct);
+
+    public Task<IReadOnlyList<AccessPoint>> GetAccessPointsAsync(WifiAdapter adapter, CancellationToken ct) => Task.FromResult(GetAccessPoints(Id(adapter)));
+
+    public Task<WifiConnection?> GetConnectionAsync(WifiAdapter adapter, CancellationToken ct) => Task.FromResult(GetConnection(Id(adapter)));
+
+    public Task<int?> GetRssiAsync(WifiAdapter adapter, CancellationToken ct) => Task.FromResult(GetRssi(Id(adapter)));
+
+    public Task<IReadOnlyList<string>> GetSavedNetworksAsync(WifiAdapter adapter, CancellationToken ct) => Task.FromResult(GetProfileNames(Id(adapter)));
+
+    public Task<bool> ConnectToBssidAsync(WifiAdapter adapter, WifiConnection connection, byte[] bssid, TimeSpan timeout, CancellationToken ct) =>
+        ConnectToBssidAsync(Id(adapter), connection.ProfileName, bssid, timeout, ct);
+
+    public string? SetLowLatency(WifiAdapter adapter, bool on)
+    {
+        uint a = SetOption(Id(adapter), WlanIntfOpcodeOption.BackgroundScan, !on);
+        uint b = SetOption(Id(adapter), WlanIntfOpcodeOption.MediaStreaming, on);
+        return a != 0 || b != 0 ? $"Low-latency mode couldn't be fully applied (errors {a}, {b})." : null;
+    }
+
+    public long? TrafficBytes(WifiAdapter adapter)
+    {
+        var id = Id(adapter);
+        var nic = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+            .FirstOrDefault(n => Guid.TryParse(n.Id, out var g) && g == id);
+        if (nic is null) return null;
+        var stats = nic.GetIPStatistics();
+        return stats.BytesReceived + stats.BytesSent;
+    }
+
+    public bool OnBattery() =>
+        System.Windows.Forms.SystemInformation.PowerStatus.PowerLineStatus == System.Windows.Forms.PowerLineStatus.Offline;
+
+    public unsafe IEnumerable<string> DiagnosticsHeader() =>
+    [
+        $"Struct sizes: BssEntry={sizeof(WlanBssEntry)} (expect 360), ConnectionAttributes={sizeof(WlanConnectionAttributes)} (604), " +
+        $"InterfaceInfo={sizeof(WlanInterfaceInfo)} (532), ConnectionParameters={Marshal.SizeOf<WlanConnectionParameters>()} (40)",
+    ];
 
     public void Dispose()
     {

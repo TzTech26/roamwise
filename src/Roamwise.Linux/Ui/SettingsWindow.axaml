@@ -1,0 +1,482 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="using:Roamwise.Linux.Ui"
+        xmlns:core="using:Roamwise.Core"
+        x:Class="Roamwise.Linux.Ui.SettingsWindow"
+        x:DataType="core:AppSettings"
+        Title="Roamwise settings" Width="880" Height="680" MinWidth="680" MinHeight="480"
+        WindowStartupLocation="CenterScreen" Icon="avares://roamwise/Assets/roamwise.png"
+        Background="{DynamicResource Rw.Window}" Foreground="{DynamicResource Rw.Text}">
+    <Window.Resources>
+        <ui:DbmConverter x:Key="Dbm" />
+        <ui:PlusDbConverter x:Key="PlusDb" />
+        <ui:DurationConverter x:Key="Duration" />
+        <ui:ChecksConverter x:Key="Checks" />
+        <ui:MbpsConverter x:Key="Mbps" />
+        <ui:EnumIsConverter x:Key="Is" />
+    </Window.Resources>
+    <Window.Styles>
+        <!-- Quiet navigation like the Windows app: a soft fill and an accent tick on the current page. -->
+        <Style Selector="ListBox#Nav ListBoxItem">
+            <Setter Property="Padding" Value="14,9" />
+            <Setter Property="Margin" Value="0,1" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Foreground" Value="{DynamicResource Rw.Text}" />
+        </Style>
+        <Style Selector="ListBox#Nav ListBoxItem /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="CornerRadius" Value="4" />
+        </Style>
+        <Style Selector="ListBox#Nav ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource Rw.SurfaceHover}" />
+            <Setter Property="Foreground" Value="{DynamicResource Rw.Text}" />
+        </Style>
+        <Style Selector="ListBox#Nav ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource Rw.Surface}" />
+            <Setter Property="Foreground" Value="{DynamicResource Rw.Text}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Rw.Accent}" />
+            <Setter Property="BorderThickness" Value="3,0,0,0" />
+        </Style>
+        <Style Selector="ListBox#Nav ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource Rw.Surface}" />
+            <Setter Property="Foreground" Value="{DynamicResource Rw.Text}" />
+        </Style>
+    </Window.Styles>
+
+    <Grid ColumnDefinitions="232,*">
+        <!-- Navigation -->
+        <Border Background="{DynamicResource Rw.Sidebar}">
+            <DockPanel Margin="12,16,12,16">
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="12,0,0,20">
+                    <Image Source="{StaticResource Rw.Logo}" Width="20" Height="20" />
+                    <TextBlock Text="Roamwise" Classes="subtitle" Margin="10,0,0,0" VerticalAlignment="Center" />
+                </StackPanel>
+                <ListBox x:Name="Nav" Background="Transparent" SelectionChanged="Nav_SelectionChanged">
+                    <ListBoxItem Content="General" Tag="general" />
+                    <ListBoxItem Content="Switching" Tag="roaming" />
+                    <ListBoxItem Content="Ranking" Tag="ranking" />
+                    <ListBoxItem Content="Networks" Tag="networks" />
+                    <ListBoxItem Content="Names" Tag="names" />
+                    <ListBoxItem Content="Activity" Tag="activity" />
+                    <ListBoxItem Content="About" Tag="about" />
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <ScrollViewer x:Name="Scroller" Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Panel Margin="28,20,36,40" MaxWidth="820">
+
+                <!-- General -->
+                <StackPanel x:Name="PageGeneral">
+                    <TextBlock Text="General" Classes="pageTitle" />
+
+                    <TextBlock Text="Roamwise" Classes="groupHeading" />
+                    <Border Classes="card">
+                        <StackPanel>
+                            <ui:SettingRow Header="Auto-roam" Description="Move to a better access point of the same network on its own. When off, Roamwise still shows what it would do.">
+                                <ToggleSwitch IsChecked="{Binding Enabled}" />
+                            </ui:SettingRow>
+                            <Border Classes="divider" />
+                            <ui:SettingRow x:Name="PauseRow" Header="Pause for an hour" Description="Stay on the access point you're on during a call or a big download. Auto-roam comes back on by itself.">
+                                <Button x:Name="PauseButton" Content="Pause" MinWidth="96" Click="Pause_Click" />
+                            </ui:SettingRow>
+                            <Border Classes="divider" />
+                            <ui:SettingRow Header="Start when I log in" Description="Runs quietly in the tray after you log in.">
+                                <ToggleSwitch IsChecked="{Binding StartWithWindows}" />
+                            </ui:SettingRow>
+                            <Border Classes="divider" />
+                            <ui:SettingRow Header="Notify me when it switches" Description="Shows a notification each time Roamwise moves you to another access point.">
+                                <ToggleSwitch IsChecked="{Binding NotifyOnRoam}" />
+                            </ui:SettingRow>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Permission to switch" Classes="groupHeading" />
+                    <Border Classes="card">
+                        <ui:SettingRow x:Name="PermissionRow" Header="Allow Roamwise to switch access points">
+                            <Button x:Name="PermissionButton" Content="Allow" MinWidth="96" Click="Permission_Click" />
+                        </ui:SettingRow>
+                    </Border>
+
+                    <TextBlock Text="Appearance" Classes="groupHeading" />
+                    <Border Classes="card">
+                        <ui:SettingRow Header="Theme" Description="Match your desktop, or pick one.">
+                            <Border Classes="segments">
+                                <StackPanel Orientation="Horizontal">
+                                    <RadioButton Classes="segment" GroupName="Theme" Content="System"
+                                                 IsChecked="{Binding Theme, Converter={StaticResource Is}, ConverterParameter={x:Static core:ThemePreference.System}}" />
+                                    <RadioButton Classes="segment" GroupName="Theme" Content="Light"
+                                                 IsChecked="{Binding Theme, Converter={StaticResource Is}, ConverterParameter={x:Static core:ThemePreference.Light}}" />
+                                    <RadioButton Classes="segment" GroupName="Theme" Content="Dark"
+                                                 IsChecked="{Binding Theme, Converter={StaticResource Is}, ConverterParameter={x:Static core:ThemePreference.Dark}}" />
+                                </StackPanel>
+                            </Border>
+                        </ui:SettingRow>
+                    </Border>
+                </StackPanel>
+
+                <!-- When to switch -->
+                <StackPanel x:Name="PageRoaming" IsVisible="False">
+                    <TextBlock Text="Switching" Classes="pageTitle" />
+                    <Border Margin="0,16,0,0" Padding="16,12" CornerRadius="6" Background="{DynamicResource Rw.Surface}"
+                            BorderBrush="{DynamicResource Rw.CardStroke}" BorderThickness="1">
+                        <Grid ColumnDefinitions="Auto,*">
+                            <Border Width="3" CornerRadius="1.5" Background="{DynamicResource Rw.AccentText}" Margin="0,2,14,2" />
+                            <TextBlock x:Name="RulesSummary" Grid.Column="1" Classes="body" />
+                        </Grid>
+                    </Border>
+
+                    <TextBlock Text="Checking" Classes="groupHeading" />
+                    <Border Classes="card">
+                        <StackPanel>
+                            <ui:SettingRow Header="Check every" Description="Each check is a short Wi-Fi scan. More often reacts faster but scans add a little latency.">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Classes="sliderValue" Text="{Binding ScanIntervalSeconds, Converter={StaticResource Duration}}" />
+                                    <Slider Width="200" Minimum="10" Maximum="300" TickFrequency="5" IsSnapToTickEnabled="True" Value="{Binding ScanIntervalSeconds}" />
+                                </StackPanel>
+                            </ui:SettingRow>
+                            <Border Classes="divider" />
+                            <ui:SettingRow Header="Check less often on battery" Description="Doubles the time between checks while unplugged.">
+                                <ToggleSwitch IsChecked="{Binding SlowerOnBattery}" />
+                            </ui:SettingRow>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Switching rules" Classes="groupHeading" />
+                    <Border Classes="card">
+                        <StackPanel>
+                            <ui:SettingRow Header="Required improvement" Description="How much better another access point has to score before Roamwise moves you.">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Classes="sliderValue" Text="{Binding MinImprovementDb, Converter={StaticResource PlusDb}}" />
+                                    <Slider Width="200" Minimum="3" Maximum="25" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding MinImprovementDb}" />
+                                </StackPanel>
+                            </ui:SettingRow>
+                            <Border Classes="divider" />
+                            <ui:SettingRow Header="Weakest access point to move to" Description="Never switch to an access point with a signal below this.">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Classes="sliderValue" Text="{Binding MinCandidateDbm, Converter={StaticResource Dbm}}" />
+                                    <Slider Width="200" Minimum="-85" Maximum="-50" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding MinCandidateDbm}" />
+                                </StackPanel>
+                            </ui:SettingRow>
+                            <Border Classes="divider" />
+                            <ui:SettingRow Header="Confirm over" Description="The better access point has to stay better for this many checks in a row, so a brief spike doesn't trigger a switch.">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Classes="sliderValue" Text="{Binding ConfirmScans, Converter={StaticResource Checks}}" />
+                                    <Slider Width="200" Minimum="1" Maximum="6" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding ConfirmScans}" />
+                                </StackPanel>
+                            </ui:SettingRow>
+                            <Border Classes="divider" />
+                            <ui:SettingRow Header="Wait between switches" Description="After a switch, Roamwise stays put at least this long.">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Classes="sliderValue" Text="{Binding CooldownSeconds, Converter={StaticResource Duration}}" />
+                                    <Slider Width="200" Minimum="30" Maximum="1800" TickFrequency="30" IsSnapToTickEnabled="True" Value="{Binding CooldownSeconds}" />
+                                </StackPanel>
+                            </ui:SettingRow>
+                            <Border Classes="divider" />
+                            <ui:SettingRow Header="Only switch when my signal is weak" Description="Leave a good connection alone, even if a better access point appears.">
+                                <ToggleSwitch IsChecked="{Binding OnlyWhenWeak}" />
+                            </ui:SettingRow>
+                            <Border Classes="divider" IsVisible="{Binding OnlyWhenWeak}" />
+                            <ui:SettingRow Header="Weak means below" Description="Roamwise starts looking for a better access point once your signal drops under this."
+                                           IsVisible="{Binding OnlyWhenWeak}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Classes="sliderValue" Text="{Binding WeakSignalDbm, Converter={StaticResource Dbm}}" />
+                                    <Slider Width="200" Minimum="-85" Maximum="-50" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding WeakSignalDbm}" />
+                                </StackPanel>
+                            </ui:SettingRow>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Don't interrupt" Classes="groupHeading" />
+                    <Border Classes="card">
+                        <StackPanel>
+                            <ui:SettingRow Header="Wait while I'm using the network"
+                                           Description="A switch interrupts the connection for a moment. Roamwise holds off while you're streaming, downloading or on a call, unless your signal is very weak.">
+                                <ToggleSwitch IsChecked="{Binding HoldOffWhenBusy}" />
+                            </ui:SettingRow>
+                            <Border Classes="divider" IsVisible="{Binding HoldOffWhenBusy}" />
+                            <ui:SettingRow Header="Busy means over" Description="Traffic through the Wi-Fi adapter since the last check. A video call uses about 2 Mbps."
+                                           IsVisible="{Binding HoldOffWhenBusy}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Classes="sliderValue" Text="{Binding BusyMbps, Converter={StaticResource Mbps}}" />
+                                    <Slider Width="200" Minimum="1" Maximum="50" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding BusyMbps}" />
+                                </StackPanel>
+                            </ui:SettingRow>
+                        </StackPanel>
+                    </Border>
+
+                    <Button Content="Restore default rules" HorizontalAlignment="Left" Margin="0,20,0,0" Click="ResetRules_Click" />
+                </StackPanel>
+
+                <!-- How APs are ranked -->
+                <StackPanel x:Name="PageRanking" IsVisible="False">
+                    <TextBlock Text="Ranking" Classes="pageTitle" />
+                    <TextBlock Classes="body" Foreground="{DynamicResource Rw.TextMuted}" Margin="0,12,0,0" MaxWidth="640" HorizontalAlignment="Left"
+                               Text="Each access point gets a score that starts at its signal strength in dBm. Faster bands and wider channels add points, busy access points lose points. Bonuses fade out between −65 and −80 dBm, so a weak fast connection never beats a solid slower one." />
+
+                    <TextBlock Text="Speed" Classes="groupHeading" />
+                    <Border Classes="card">
+                        <StackPanel>
+                            <ui:SettingRow Header="5 GHz bonus" Description="5 GHz is usually faster and less crowded than 2.4 GHz.">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Classes="sliderValue" Text="{Binding Bonus5GhzDb, Converter={StaticResource PlusDb}}" />
+                                    <Slider Width="200" Minimum="0" Maximum="15" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding Bonus5GhzDb}" />
+                                </StackPanel>
+                            </ui:SettingRow>
+                            <Border Classes="divider" />
+                            <ui:SettingRow Header="6 GHz bonus" Description="Wi-Fi 6E and 7 only. Very fast with little interference, but shorter range.">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Classes="sliderValue" Text="{Binding Bonus6GhzDb, Converter={StaticResource PlusDb}}" />
+                                    <Slider Width="200" Minimum="0" Maximum="15" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding Bonus6GhzDb}" />
+                                </StackPanel>
+                            </ui:SettingRow>
+                            <Border Classes="divider" />
+                            <ui:SettingRow Header="Avoid 2.4 GHz" Description="Scores 2.4 GHz access points 6 points lower. Leave off if you need the extra range.">
+                                <ToggleSwitch IsChecked="{Binding Avoid24Ghz}" />
+                            </ui:SettingRow>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Crowding" Classes="groupHeading" />
+                    <Border Classes="card">
+                        <ui:SettingRow Header="Account for busy access points"
+                                       Description="Uses how busy each access point says it is. When it doesn't say, Roamwise counts the other radios sharing its channel.">
+                            <ToggleSwitch IsChecked="{Binding ConsiderLoad}" />
+                        </ui:SettingRow>
+                    </Border>
+                </StackPanel>
+
+                <!-- Networks -->
+                <StackPanel x:Name="PageNetworks" IsVisible="False">
+                    <TextBlock Text="Networks" Classes="pageTitle" />
+
+                    <TextBlock Text="Which networks Roamwise manages" Classes="groupHeading" />
+                    <Border Classes="segments">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton Classes="segment" GroupName="Scope" Content="All networks, except excluded ones"
+                                         IsChecked="{Binding Scope, Converter={StaticResource Is}, ConverterParameter={x:Static core:NetworkScope.AllExceptExcluded}}" />
+                            <RadioButton Classes="segment" GroupName="Scope" Content="Only networks I list"
+                                         IsChecked="{Binding Scope, Converter={StaticResource Is}, ConverterParameter={x:Static core:NetworkScope.OnlyIncluded}}" />
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock x:Name="ListHeading" Classes="groupHeading" />
+                    <Border Classes="card">
+                        <StackPanel>
+                            <ItemsControl x:Name="NetworkList">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                        <StackPanel>
+                                            <Grid Margin="16,8,8,8" MinHeight="32" ColumnDefinitions="Auto,*,Auto">
+                                                <Path Classes="line" Data="{StaticResource Rw.Icon.Wifi}" Stroke="{DynamicResource Rw.TextMuted}" VerticalAlignment="Center" />
+                                                <TextBlock Grid.Column="1" Text="{Binding}" Classes="body" Margin="14,0,0,0" VerticalAlignment="Center" />
+                                                <Button Grid.Column="2" Classes="icon" ToolTip.Tip="Remove" Tag="{Binding}" Click="RemoveNetwork_Click">
+                                                    <Path Classes="line" Data="{StaticResource Rw.Icon.Remove}" />
+                                                </Button>
+                                            </Grid>
+                                            <Border Classes="divider" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock x:Name="ListEmpty" Classes="caption" FontSize="13" Margin="16,14" />
+                            <Border Classes="divider" x:Name="ListEmptyDivider" />
+                            <Grid Margin="16,12" ColumnDefinitions="*,Auto">
+                                <TextBox x:Name="NewNetwork" Watermark="Network name (SSID)" KeyDown="NewNetwork_KeyDown" />
+                                <Button Grid.Column="1" Content="Add" Margin="8,0,0,0" MinWidth="72" Click="AddNetwork_Click" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel x:Name="SavedPanel">
+                        <TextBlock Text="Saved on this computer" Classes="groupHeading" />
+                        <TextBlock Classes="caption" Margin="2,-4,0,10" Text="Select a network to add it to the list." />
+                        <ItemsControl x:Name="SavedList">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <Button Margin="0,0,8,8" Tag="{Binding}" Click="AddSaved_Click">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Path Classes="line" Data="{StaticResource Rw.Icon.Add}" Width="12" Height="12" StrokeThickness="1.4" Margin="0,0,8,0" Stretch="Uniform" />
+                                            <TextBlock Text="{Binding}" />
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Access point names -->
+                <StackPanel x:Name="PageNames" IsVisible="False">
+                    <TextBlock Text="Access point names" Classes="pageTitle" />
+                    <TextBlock Classes="body" Foreground="{DynamicResource Rw.TextMuted}" Margin="0,12,0,0" MaxWidth="640" HorizontalAlignment="Left"
+                               Text="Most access points don't broadcast their name. Roamwise uses the names you give first, then the names from your controller or a list you import, then whatever the access point announces. Otherwise it shows the end of the device's MAC address." />
+
+                    <TextBlock Text="Look up names" Classes="groupHeading" />
+                    <Border Classes="card">
+                        <StackPanel>
+                            <ui:SettingRow x:Name="SourceRow" Header="Get names from">
+                                <ComboBox x:Name="SourceBox" Width="280" SelectionChanged="SourceBox_SelectionChanged">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="core:NameSourceInfo">
+                                            <TextBlock Text="{Binding Title}" />
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                            </ui:SettingRow>
+
+                            <StackPanel x:Name="AddressGroup">
+                                <Border Classes="divider" />
+                                <ui:SettingRow x:Name="AddressRow">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBox x:Name="AddressBox" Width="280" />
+                                        <Button x:Name="BrowseButton" Content="Browse…" Margin="8,0,0,0" Click="Browse_Click" />
+                                    </StackPanel>
+                                </ui:SettingRow>
+                            </StackPanel>
+
+                            <StackPanel x:Name="UserGroup">
+                                <Border Classes="divider" />
+                                <ui:SettingRow x:Name="UserRow">
+                                    <TextBox x:Name="UserBox" Width="280" />
+                                </ui:SettingRow>
+                            </StackPanel>
+
+                            <StackPanel x:Name="SecretGroup">
+                                <Border Classes="divider" />
+                                <ui:SettingRow x:Name="SecretRow">
+                                    <TextBox x:Name="SecretBox" Width="280" PasswordChar="•" />
+                                </ui:SettingRow>
+                            </StackPanel>
+
+                            <StackPanel x:Name="ExtraGroup">
+                                <Border Classes="divider" />
+                                <ui:SettingRow x:Name="ExtraRow">
+                                    <TextBox x:Name="ExtraBox" Width="280" />
+                                </ui:SettingRow>
+                            </StackPanel>
+
+                            <StackPanel x:Name="SourceFooter">
+                                <Border Classes="divider" />
+                                <Grid Margin="16,12" ColumnDefinitions="*,Auto,Auto">
+                                    <TextBlock x:Name="SourceStatus" Classes="caption" FontSize="13" VerticalAlignment="Center" Margin="0,0,16,0" />
+                                    <Button x:Name="SourceForget" Grid.Column="1" Content="Disconnect" Margin="0,0,8,0" Click="SourceForget_Click" />
+                                    <Button x:Name="SourceConnect" Grid.Column="2" Classes="accent" Content="Connect" MinWidth="96" Click="SourceConnect_Click" />
+                                </Grid>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Names you've given" Classes="groupHeading" />
+                    <Border Classes="card">
+                        <StackPanel>
+                            <ItemsControl x:Name="CustomNames">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="ui:NameRow">
+                                        <StackPanel>
+                                            <Grid Margin="16,8,8,8" MinHeight="32" ColumnDefinitions="*,Auto">
+                                                <StackPanel VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Name}" Classes="body" />
+                                                    <TextBlock Text="{Binding Detail}" Classes="caption" />
+                                                </StackPanel>
+                                                <Button Grid.Column="1" Content="Use default" Tag="{Binding Key}" Click="ResetName_Click" />
+                                            </Grid>
+                                            <Border Classes="divider" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock x:Name="CustomNamesEmpty" Classes="caption" FontSize="13" Margin="16,14"
+                                       Text="You haven't renamed any access points. Select one in the Roamwise panel and use the pencil button." />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Activity -->
+                <StackPanel x:Name="PageActivity" IsVisible="False">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="Activity" Classes="pageTitle" />
+                        <Button x:Name="ClearActivity" Grid.Column="1" Content="Clear activity" VerticalAlignment="Center" Click="ClearActivity_Click" />
+                    </Grid>
+                    <TextBlock x:Name="ActivityEmpty" Classes="body" Foreground="{DynamicResource Rw.TextMuted}" Margin="0,16,0,0"
+                               Text="Nothing yet. Switches and problems show up here." />
+                    <Border x:Name="ActivityCard" Classes="card" Margin="0,20,0,0">
+                        <ItemsControl x:Name="ActivityList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="ui:ActivityRow">
+                                    <StackPanel>
+                                        <Grid Margin="16,10" ColumnDefinitions="Auto,112,*">
+                                            <Ellipse Width="8" Height="8" Fill="{Binding Brush}" VerticalAlignment="Top" Margin="0,7,14,0" />
+                                            <TextBlock Grid.Column="1" Text="{Binding When}" Classes="caption" FontSize="13" Margin="0,1,0,0" TextWrapping="NoWrap" />
+                                            <TextBlock Grid.Column="2" Text="{Binding Message}" Classes="body" />
+                                        </Grid>
+                                        <Border Classes="divider" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
+                </StackPanel>
+
+                <!-- About -->
+                <StackPanel x:Name="PageAbout" IsVisible="False">
+                    <TextBlock Text="About" Classes="pageTitle" />
+                    <Border Classes="card" Margin="0,20,0,0" Padding="20,18">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <Image Source="{StaticResource Rw.Logo}" Width="32" Height="32" />
+                                <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="Roamwise" Classes="subtitle" />
+                                    <TextBlock x:Name="VersionText" Classes="caption" />
+                                </StackPanel>
+                            </StackPanel>
+                            <TextBlock Classes="body" Margin="0,16,0,0" MaxWidth="620" HorizontalAlignment="Left"
+                                       Text="Your computer often holds on to the first access point it joined, even after you walk away from it. On networks with many access points, Roamwise keeps checking which one is best for you and moves you there, within the connection NetworkManager already has saved." />
+                            <StackPanel Orientation="Horizontal" Margin="0,16,0,0" Spacing="24">
+                                <Button Classes="link" Content="Source code on GitHub" Click="OpenRepo_Click" />
+                                <Button Classes="link" Content="Open data folder" Click="OpenData_Click" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Updates" Classes="groupHeading" />
+                    <Border Classes="card">
+                        <StackPanel>
+                            <Grid Margin="16,12" ColumnDefinitions="*,Auto,Auto">
+                                <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="UpdateTitle" Classes="body" />
+                                    <TextBlock x:Name="UpdateStatus" Classes="caption" />
+                                </StackPanel>
+                                <Button x:Name="UpdateNotes" Grid.Column="1" Classes="link" Content="What's new" Margin="0,0,16,0"
+                                        VerticalAlignment="Center" Click="UpdateNotes_Click" />
+                                <Button x:Name="UpdateButton" Grid.Column="2" Content="Check for updates" MinWidth="96"
+                                        VerticalAlignment="Center" Click="Update_Click" />
+                            </Grid>
+                            <Border Classes="divider" />
+                            <ui:SettingRow Header="Check for updates automatically" Description="Looks at the project's GitHub releases once a day. Nothing else is sent.">
+                                <ToggleSwitch IsChecked="{Binding CheckForUpdates}" />
+                            </ui:SettingRow>
+                            <Border Classes="divider" IsVisible="{Binding CheckForUpdates}" />
+                            <ui:SettingRow Header="Install updates on their own" Description="Downloads, checks the release's published checksum and restarts Roamwise in the background. Works when Roamwise runs from its AppImage."
+                                           IsVisible="{Binding CheckForUpdates}">
+                                <ToggleSwitch IsChecked="{Binding InstallUpdatesAutomatically}" />
+                            </ui:SettingRow>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Troubleshooting" Classes="groupHeading" />
+                    <Border Classes="card">
+                        <ui:SettingRow Header="Diagnostics report"
+                                       Description="A text file with your adapter and every nearby access point, for bug reports. Review it before sharing: it contains network names and MAC addresses.">
+                            <Button x:Name="DiagnoseButton" Content="Save report…" Click="Diagnose_Click" />
+                        </ui:SettingRow>
+                    </Border>
+                </StackPanel>
+            </Panel>
+        </ScrollViewer>
+    </Grid>
+</Window>

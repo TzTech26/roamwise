@@ -1,42 +1,39 @@
-using System.IO;
 using System.Text;
-using Roamwise.Native;
 using Roamwise.Wifi;
 
 namespace Roamwise.Core;
 
 /// <summary>
-/// "Roamwise.exe --diagnose report.txt" writes what Roamwise sees without changing anything.
-/// Handy for bug reports and for checking a new Windows build.
+/// "Roamwise --diagnose report.txt" writes what Roamwise sees without changing anything.
+/// Handy for bug reports and for checking a new OS build.
 /// </summary>
 public static class Diagnostics
 {
-    public static async Task WriteReportAsync(string path)
+    public static async Task WriteReportAsync(string path, Func<IWifiBackend> openWifi)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"Roamwise diagnostics, {DateTime.Now:u}");
-        sb.AppendLine($"Windows {Environment.OSVersion.Version}");
-        unsafe
-        {
-            sb.AppendLine($"Struct sizes: BssEntry={sizeof(WlanBssEntry)} (expect 360), ConnectionAttributes={sizeof(WlanConnectionAttributes)} (604), " +
-                          $"InterfaceInfo={sizeof(WlanInterfaceInfo)} (532), ConnectionParameters={System.Runtime.InteropServices.Marshal.SizeOf<WlanConnectionParameters>()} (40)");
-        }
+        sb.AppendLine($"Roamwise {Updater.CurrentVersion} diagnostics, {DateTime.Now:u}");
+        sb.AppendLine($"{System.Runtime.InteropServices.RuntimeInformation.OSDescription} ({System.Runtime.InteropServices.RuntimeInformation.OSArchitecture})");
+        var ct = CancellationToken.None;
 
         try
         {
-            using var wlan = new WlanClient();
+            using var wlan = openWifi();
+            var adapters = await wlan.GetAdaptersAsync(ct);
+            foreach (string line in wlan.DiagnosticsHeader()) sb.AppendLine(line);
+            sb.AppendLine($"Can switch access points: {wlan.CanSwitch}");
             var settings = new AppSettings();
-            foreach (var adapter in wlan.GetAdapters())
+            foreach (var adapter in adapters)
             {
-                sb.AppendLine().AppendLine($"Adapter: {adapter.Description} {adapter.Id} connected={adapter.IsConnected}");
-                var conn = wlan.GetConnection(adapter.Id);
+                sb.AppendLine().AppendLine($"Adapter: {adapter.Name} ({adapter.Description}) {adapter.Id} connected={adapter.IsConnected}");
+                var conn = await wlan.GetConnectionAsync(adapter, ct);
                 sb.AppendLine(conn is null ? "Connection: none"
-                    : $"Connection: profile '{conn.ProfileName}', ssid '{conn.Ssid}', bssid {conn.Bssid}, quality {conn.SignalQuality}, rx {conn.RxRateMbps} Mbps, rssi {wlan.GetRssi(adapter.Id)}");
+                    : $"Connection: profile '{conn.ProfileName}', ssid '{conn.Ssid}', bssid {conn.Bssid}, quality {conn.SignalQuality}, rx {conn.RxRateMbps} Mbps, rssi {await wlan.GetRssiAsync(adapter, ct)}");
 
                 try
                 {
-                    await wlan.ScanAsync(adapter.Id, TimeSpan.FromSeconds(5), CancellationToken.None);
-                    var aps = wlan.GetAccessPoints(adapter.Id);
+                    await wlan.ScanAsync(adapter, TimeSpan.FromSeconds(5), ct);
+                    var aps = await wlan.GetAccessPointsAsync(adapter, ct);
                     sb.AppendLine($"Access points: {aps.Count}");
                     foreach (var ap in aps.OrderBy(a => a.Ssid).ThenByDescending(a => a.Rssi))
                     {
@@ -49,18 +46,18 @@ public static class Diagnostics
                             sb.AppendLine($"      neighbor {Mac.Format(n.Bssid)}  {WifiText.Band(n.Band)} ch {n.Channel}  sameSsid={n.SameSsid} coLocated={n.CoLocated} shortSsid={n.ShortSsid:x8}");
                     }
                 }
-                catch (WlanException ex)
+                catch (WifiException ex)
                 {
                     sb.AppendLine($"Scan: {ex.Message}");
                 }
 
-                try { sb.AppendLine($"Saved profiles: {string.Join(", ", wlan.GetProfileNames(adapter.Id))}"); }
-                catch (WlanException ex) { sb.AppendLine($"Saved profiles: {ex.Message}"); }
+                try { sb.AppendLine($"Saved networks: {string.Join(", ", await wlan.GetSavedNetworksAsync(adapter, ct))}"); }
+                catch (WifiException ex) { sb.AppendLine($"Saved networks: {ex.Message}"); }
             }
         }
-        catch (WlanException ex)
+        catch (WifiException ex)
         {
-            sb.AppendLine($"Wi-Fi API: {ex.Message}");
+            sb.AppendLine($"Wi-Fi: {ex.Message}");
         }
 
         await File.WriteAllTextAsync(path, sb.ToString());

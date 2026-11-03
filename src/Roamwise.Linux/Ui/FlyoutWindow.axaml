@@ -1,0 +1,145 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="using:Roamwise.Linux.Ui"
+        xmlns:core="using:Roamwise.Core"
+        x:Class="Roamwise.Linux.Ui.FlyoutWindow"
+        x:DataType="core:AppSettings"
+        Title="Roamwise" Width="380" SizeToContent="Height" CanResize="False"
+        SystemDecorations="None" ShowInTaskbar="False" Topmost="True"
+        Background="{DynamicResource Rw.Window}" Foreground="{DynamicResource Rw.Text}">
+    <Window.Resources>
+        <ui:EnumIsConverter x:Key="Is" />
+    </Window.Resources>
+
+    <Border BorderBrush="{DynamicResource Rw.Line}" BorderThickness="1">
+        <Grid x:Name="Root" RowDefinitions="*,Auto">
+            <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="20,12,16,18">
+                    <!-- App bar -->
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                        <Path Classes="line" Data="{StaticResource Rw.Icon.Wifi}" Stroke="{DynamicResource Rw.AccentText}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="Roamwise" Classes="caption" Margin="8,0,0,0" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0,0,4,0" ToolTip.Tip="Switch access points automatically">
+                            <TextBlock Text="Auto-roam" Classes="caption" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <ToggleSwitch IsChecked="{Binding Enabled}" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <Button Grid.Column="3" Classes="icon" ToolTip.Tip="Settings" Click="OpenSettings_Click">
+                            <Path Classes="line" Data="{StaticResource Rw.Icon.Gear}" />
+                        </Button>
+                    </Grid>
+
+                    <!-- One-time setup before Roamwise may switch -->
+                    <Border x:Name="SetupBanner" Margin="0,12,4,0" Padding="12,10,10,10" CornerRadius="6" IsVisible="False"
+                            Background="{DynamicResource Rw.AccentBanner}">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <Path Classes="line" Data="{StaticResource Rw.Icon.Lock}" Stroke="{DynamicResource Rw.AccentText}" VerticalAlignment="Top" Margin="0,2,10,0" />
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <TextBlock Classes="subtitle" FontSize="13" Text="Allow Roamwise to switch" />
+                                <TextBlock x:Name="SetupText" Classes="caption" Margin="0,2,0,0"
+                                           Text="A one-time step that asks for your password. Until then Roamwise only shows what it would do." />
+                            </StackPanel>
+                            <Button x:Name="SetupButton" Grid.Column="2" Classes="accent" FontSize="12" Padding="10,4" VerticalAlignment="Center"
+                                    Margin="8,0,0,0" Content="Allow" Click="Setup_Click" />
+                        </Grid>
+                    </Border>
+
+                    <!-- A new release is out -->
+                    <Border x:Name="UpdateBanner" Margin="0,12,4,0" Padding="12,9,8,10" CornerRadius="6" IsVisible="False"
+                            Background="{DynamicResource Rw.AccentBanner}">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <Path Classes="line" Data="{StaticResource Rw.Icon.Update}" Stroke="{DynamicResource Rw.AccentText}" VerticalAlignment="Top" Margin="0,2,10,0" />
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <TextBlock x:Name="UpdateTitle" Classes="subtitle" FontSize="13" />
+                                <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,2,0,0">
+                                    <Button Classes="link" FontSize="12" Content="What's new" Click="UpdateNotes_Click" />
+                                    <Button Classes="link" FontSize="12" Foreground="{DynamicResource Rw.TextMuted}" Content="Skip this version" Click="UpdateSkip_Click" />
+                                </StackPanel>
+                                <TextBlock x:Name="UpdateError" Classes="caption" Margin="0,4,0,0" Foreground="{DynamicResource Rw.Weak}" IsVisible="False" />
+                            </StackPanel>
+                            <Button x:Name="UpdateButton" Grid.Column="2" Classes="accent" FontSize="12" Padding="10,4" VerticalAlignment="Center"
+                                    Margin="8,0,0,0" Content="Install" Click="UpdateInstall_Click" />
+                        </Grid>
+                    </Border>
+
+                    <!-- The network you're on -->
+                    <Grid Margin="0,12,4,0" ColumnDefinitions="*,Auto">
+                        <StackPanel>
+                            <TextBlock x:Name="SsidText" FontSize="20" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Text="Checking Wi-Fi…" />
+                            <TextBlock x:Name="LinkText" Classes="caption" Margin="0,2,0,0" />
+                        </StackPanel>
+                        <StackPanel x:Name="RssiPanel" Grid.Column="1" Margin="16,0,0,0">
+                            <TextBlock x:Name="RssiText" FontSize="20" FontWeight="SemiBold" TextAlignment="Right" />
+                            <TextBlock x:Name="QualityText" Classes="caption" TextAlignment="Right" Margin="0,2,0,0" />
+                        </StackPanel>
+                    </Grid>
+
+                    <StackPanel x:Name="FieldPanel" Margin="0,0,4,0">
+                        <!-- Summary and sort order -->
+                        <Grid Margin="0,18,0,8" ColumnDefinitions="*,Auto">
+                            <TextBlock x:Name="RadioSummary" Classes="caption" VerticalAlignment="Center" TextWrapping="NoWrap"
+                                       TextTrimming="CharacterEllipsis" Margin="0,0,8,0" />
+                            <Border Grid.Column="1" Classes="segments" CornerRadius="5" Padding="2">
+                                <StackPanel Orientation="Horizontal">
+                                    <RadioButton Classes="segment" GroupName="Sort" Content="Band" FontSize="12" Padding="9,2,9,3"
+                                                 ToolTip.Tip="Group by band, then channel"
+                                                 IsChecked="{Binding Sort, Converter={StaticResource Is}, ConverterParameter={x:Static core:ApSort.Band}}" />
+                                    <RadioButton Classes="segment" GroupName="Sort" Content="Device" FontSize="12" Padding="9,2,9,3"
+                                                 ToolTip.Tip="Group the radios of each access point"
+                                                 IsChecked="{Binding Sort, Converter={StaticResource Is}, ConverterParameter={x:Static core:ApSort.Device}}" />
+                                    <RadioButton Classes="segment" GroupName="Sort" Content="Best" FontSize="12" Padding="9,2,9,3"
+                                                 ToolTip.Tip="Best rated first"
+                                                 IsChecked="{Binding Sort, Converter={StaticResource Is}, ConverterParameter={x:Static core:ApSort.Best}}" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <ui:SignalField x:Name="Field" />
+
+                        <TextBlock x:Name="DecisionText" Classes="body" FontSize="13" LineHeight="19" Margin="0,14,0,0" />
+
+                        <!-- Details for the access point picked in the chart -->
+                        <Border x:Name="DetailPanel" Margin="0,12,0,0" Padding="14,10,8,14" CornerRadius="6" IsVisible="False"
+                                Background="{DynamicResource Rw.Surface}" BorderBrush="{DynamicResource Rw.CardStroke}" BorderThickness="1">
+                            <StackPanel>
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock x:Name="DetailName" Classes="subtitle" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock x:Name="DetailId" Classes="caption" FontSize="11" Foreground="{DynamicResource Rw.TextFaint}" Margin="0,1,0,0" />
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Classes="icon" ToolTip.Tip="Rename this access point" Click="Rename_Click">
+                                        <Path Classes="line" Data="{StaticResource Rw.Icon.Pencil}" />
+                                    </Button>
+                                </Grid>
+
+                                <StackPanel x:Name="RenamePanel" Margin="0,8,6,0" IsVisible="False">
+                                    <TextBox x:Name="RenameBox" KeyDown="RenameBox_KeyDown" />
+                                    <TextBlock Classes="caption" FontSize="11" Margin="0,4,0,0"
+                                               Text="Enter saves, Esc cancels. Clear it to go back to the default name." />
+                                </StackPanel>
+
+                                <Grid x:Name="DetailFacts" Margin="0,10,6,0" ColumnDefinitions="68,*" />
+
+                                <Button x:Name="SwitchButton" Classes="accent" FontSize="13" Content="Switch to this access point"
+                                        HorizontalAlignment="Left" Margin="0,12,0,0" Click="Switch_Click" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Shown instead of the chart when there's nothing to chart -->
+                    <StackPanel x:Name="EmptyPanel" Margin="0,8,4,0" IsVisible="False">
+                        <TextBlock x:Name="EmptyText" Classes="body" FontSize="13" LineHeight="19" />
+                        <Button x:Name="EmptyAction" FontSize="13" HorizontalAlignment="Left" Margin="0,12,0,0" Click="EmptyAction_Click" />
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+
+            <Border Grid.Row="1" Background="{DynamicResource Rw.Footer}" BorderBrush="{DynamicResource Rw.Line}" BorderThickness="0,1,0,0"
+                    Padding="20,10,12,10">
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock x:Name="CheckedText" Classes="caption" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                    <Button x:Name="CheckButton" Grid.Column="1" FontSize="13" Content="Check now" Click="CheckNow_Click" />
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

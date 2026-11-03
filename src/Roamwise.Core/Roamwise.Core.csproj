@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Everything that isn't tied to one operating system: the roaming engine, scoring, settings, name lookups and updates. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Roamwise</RootNamespace>
+    <AssemblyName>Roamwise.Core</AssemblyName>
+  </PropertyGroup>
+
+</Project>

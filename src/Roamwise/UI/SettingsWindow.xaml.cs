@@ -247,7 +247,7 @@ public partial class SettingsWindow : Window
             _settings.ControllerAddress = "";
             _settings.ControllerUser = "";
             _settings.ControllerExtra = "";
-            _settings.ControllerSecretProtected = "";
+            _ = _names.ForgetSecretAsync();
             _settings.SetNamedDevices([]);
             _settings.ControllerSyncedAt = null;
             AddressBox.Clear(); UserBox.Clear(); ExtraBox.Clear(); SecretBox.Clear();
@@ -337,7 +337,7 @@ public partial class SettingsWindow : Window
         _settings.ControllerExtra = ExtraBox.Text.Trim();
         if (SecretBox.Password.Length > 0)
         {
-            _settings.ControllerSecretProtected = NameSources.Protect(SecretBox.Password);
+            await _names.SaveSecretAsync(SecretBox.Password);
             SecretBox.Clear();
         }
 
@@ -352,9 +352,9 @@ public partial class SettingsWindow : Window
         _engine.CheckNow();
     }
 
-    private void SourceForget_Click(object sender, RoutedEventArgs e)
+    private async void SourceForget_Click(object sender, RoutedEventArgs e)
     {
-        _settings.ControllerSecretProtected = "";
+        await _names.ForgetSecretAsync();
         _settings.SetNamedDevices([]);
         _settings.ControllerSyncedAt = null;
         SourceStatus.SetResourceReference(TextBlock.ForegroundProperty, "Rw.TextMuted");
@@ -441,7 +441,7 @@ public partial class SettingsWindow : Window
         DiagnoseButton.Content = "Scanning…";
         try
         {
-            await Diagnostics.WriteReportAsync(dialog.FileName);
+            await Diagnostics.WriteReportAsync(dialog.FileName, () => new WlanClient());
             Launch(dialog.FileName);
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or WlanException)
