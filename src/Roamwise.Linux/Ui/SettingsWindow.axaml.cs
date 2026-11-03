@@ -58,7 +58,10 @@ public partial class SettingsWindow : Window
             _engine.SnapshotChanged -= OnSnapshot;
         };
 
-        UpdateSummary();
+        // Start on the connected network's own rules when it has them.
+        if (_engine.Snapshot.Connection?.Ssid is string ssid && _settings.HasOwnRules(ssid)) _rulesFor = ssid;
+        RenderRuleTargets();
+        RenderRules();
         UpdateNetworks();
         UpdateActivity();
         UpdateNames();
@@ -78,7 +81,8 @@ public partial class SettingsWindow : Window
 
     private void OnSettingChanged(object? sender, PropertyChangedEventArgs e) => Dispatcher.UIThread.Post(() =>
     {
-        UpdateSummary();
+        if (e.PropertyName == nameof(AppSettings.NetworkRules)) RenderRuleTargets();
+        RenderRules();
         if (e.PropertyName == nameof(AppSettings.Scope)) UpdateNetworks();
         if (e.PropertyName == nameof(AppSettings.ApNames)) UpdateNames();
         if (e.PropertyName is nameof(AppSettings.Enabled) or nameof(AppSettings.PausedUntil)) RenderPause();
@@ -104,12 +108,92 @@ public partial class SettingsWindow : Window
         PageAbout.IsVisible = tag == "about";
         Scroller.Offset = default;
         if (tag == "networks") UpdateNetworks();
+        if (tag == "roaming") RenderRuleTargets(); // saved networks may have changed
+    }
+
+    // ---- Rules: for all networks or one network, as a preset or in full ----
+
+    /// <summary>The network whose rules are shown; null for the rules every other network uses.</summary>
+    private string? _rulesFor;
+    private bool _renderingRules;
+
+    private RoamRules ShownRules => _rulesFor is null ? _settings.Rules : _settings.RulesFor(_rulesFor);
+    private bool ShownRulesEditable => _rulesFor is null || _settings.HasOwnRules(_rulesFor);
+
+    private void RenderRuleTargets()
+    {
+        string? current = _engine.Snapshot.Connection?.Ssid;
+        var names = _settings.NetworkRules.Keys
+            .Concat(_engine.SavedNetworks())
+            .Append(current ?? "")
+            .Append(_rulesFor ?? "")
+            .Where(n => n.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(n => !_settings.HasOwnRules(n))
+            .ThenBy(n => n, StringComparer.CurrentCultureIgnoreCase);
+        var targets = new List<RuleTarget> { new("All networks", null) };
+        targets.AddRange(names.Select(n => new RuleTarget(
+            n + (_settings.HasOwnRules(n) ? " · own rules" : ""), n)));
+
+        _renderingRules = true;
+        RulesForBox.ItemsSource = targets;
+        RulesForBox.SelectedItem = targets.FirstOrDefault(x => string.Equals(x.Ssid, _rulesFor, StringComparison.OrdinalIgnoreCase)) ?? targets[0];
+        _renderingRules = false;
+    }
+
+    private void RenderRules()
+    {
+        var rules = ShownRules;
+        bool editable = ShownRulesEditable;
+        AdvancedRules.DataContext = rules;
+        PageRanking.DataContext = rules;
+        AdvancedRules.IsEnabled = editable;
+        PresetRow.IsEnabled = editable;
+        foreach (var panel in PageRanking.Children.OfType<Border>()) panel.IsEnabled = editable;
+
+        bool all = _settings.ShowAllSettings;
+        AdvancedRules.IsVisible = all;
+        // The list ignores hidden items, so Ranking is taken out of it while only the presets show.
+        if (all && !Nav.Items.Contains(NavRanking)) Nav.Items.Insert(2, NavRanking);
+        if (!all && Nav.Items.Contains(NavRanking))
+        {
+            if (Nav.SelectedItem == NavRanking) ShowPage("roaming");
+            Nav.Items.Remove(NavRanking);
+        }
+
+        // Which rules these are, and the one action that changes that.
+        RulesForDivider.IsVisible = RulesForStatus.IsVisible = _rulesFor is not null;
+        if (_rulesFor is string ssid)
+        {
+            bool own = _settings.HasOwnRules(ssid);
+            RulesForText.Text = own
+                ? $"{ssid} has its own rules. Changes here apply only while you're on {ssid}."
+                : $"{ssid} uses the rules for all networks, shown below.";
+            RulesForButton.Content = own ? "Use the rules for all networks" : $"Give {ssid} its own rules";
+            RankingFor.Text = own ? $"These apply only on {ssid}. Pick another network on the Switching page." : $"{ssid} uses the rules for all networks.";
+        }
+        else RankingFor.Text = _settings.NetworkRules.Count == 0 ? "These apply to every network." : "These apply to every network without its own rules.";
+
+        var preset = rules.MatchingPreset;
+        _renderingRules = true;
+        PresetPassive.IsChecked = preset == RulePreset.Passive;
+        PresetBalanced.IsChecked = preset == RulePreset.Balanced;
+        PresetAggressive.IsChecked = preset == RulePreset.Aggressive;
+        _renderingRules = false;
+        PresetRow.Header = preset == RulePreset.Custom ? "How eagerly to switch: custom" : "How eagerly to switch";
+        PresetRow.Description = preset == RulePreset.Custom
+            ? "You've adjusted the rules yourself. Pick a style to replace them with a preset."
+            : RoamRules.Describe(preset);
+        ToolTip.SetTip(PresetPassive, RoamRules.Describe(RulePreset.Passive));
+        ToolTip.SetTip(PresetBalanced, RoamRules.Describe(RulePreset.Balanced));
+        ToolTip.SetTip(PresetAggressive, RoamRules.Describe(RulePreset.Aggressive));
+
+        RulesSummary.Text = Summary(rules);
     }
 
     // The rules in one paragraph, so the effect of the sliders is clear without knowing the jargon.
-    private void UpdateSummary()
+    private static string Summary(RoamRules s)
     {
-        var s = _settings;
         string every = DurationConverter.Format(s.ScanIntervalSeconds);
         string trigger = s.OnlyWhenWeak
             ? $"Every {every}, Roamwise checks your signal. Once it drops below {Wifi.WifiText.Dbm(s.WeakSignalDbm)} dBm, it compares the other access points of your network."
@@ -117,10 +201,29 @@ public partial class SettingsWindow : Window
         string confirm = s.ConfirmScans == 1
             ? "it switches at the next check"
             : $"it switches once that's held for {s.ConfirmScans} checks in a row (about {DurationConverter.Format(s.ScanIntervalSeconds * (s.ConfirmScans - 1))})";
-        RulesSummary.Text =
-            $"{trigger} " +
+        return $"{trigger} " +
             $"If one scores at least {s.MinImprovementDb} points higher and its signal is {Wifi.WifiText.Dbm(s.MinCandidateDbm)} dBm or better, " +
             $"{confirm}. After a switch it waits {DurationConverter.Format(s.CooldownSeconds)} before switching again.";
+    }
+
+    private void RulesFor_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_renderingRules || RulesForBox.SelectedItem is not RuleTarget target) return;
+        _rulesFor = target.Ssid;
+        RenderRules();
+    }
+
+    private void RulesForButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_rulesFor is not string ssid) return;
+        if (_settings.HasOwnRules(ssid)) _settings.RemoveRules(ssid);
+        else _settings.CustomizeRules(ssid);
+    }
+
+    private void Preset_Changed(object? sender, RoutedEventArgs e)
+    {
+        if (_renderingRules || sender is not RadioButton { IsChecked: true, Tag: RulePreset preset }) return;
+        ShownRules.ApplyPreset(preset);
     }
 
     // ---- Networks ----
@@ -459,15 +562,7 @@ public partial class SettingsWindow : Window
 
     private void ResetRules_Click(object? sender, RoutedEventArgs e)
     {
-        var d = new AppSettings();
-        _settings.ScanIntervalSeconds = d.ScanIntervalSeconds;
-        _settings.SlowerOnBattery = d.SlowerOnBattery;
-        _settings.MinImprovementDb = d.MinImprovementDb;
-        _settings.MinCandidateDbm = d.MinCandidateDbm;
-        _settings.ConfirmScans = d.ConfirmScans;
-        _settings.CooldownSeconds = d.CooldownSeconds;
-        _settings.OnlyWhenWeak = d.OnlyWhenWeak;
-        _settings.WeakSignalDbm = d.WeakSignalDbm;
+        ShownRules.CopySwitchingFrom(new RoamRules());
     }
 
     private void OpenRepo_Click(object? sender, RoutedEventArgs e) => Shell.Open(RepoUrl);

@@ -203,15 +203,49 @@
             <Setter Property="Template">
                 <ControlTemplate>
                     <Grid ColumnDefinitions="*,Auto" Margin="16,12" MinHeight="40">
-                        <StackPanel VerticalAlignment="Center" Margin="0,0,24,0">
-                            <TextBlock Classes="body" Text="{TemplateBinding Header}" />
-                            <TextBlock Classes="caption" Margin="0,2,0,0" Text="{TemplateBinding Description}"
-                                       IsVisible="{TemplateBinding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <!-- The explanation shows on hover (the info mark), or always for rows marked Inline. -->
+                        <StackPanel x:Name="Head" VerticalAlignment="Center" Margin="0,0,24,0" Background="Transparent"
+                                    ToolTip.ShowDelay="200">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Classes="body" Text="{TemplateBinding Header}" />
+                                <Border x:Name="Info" Width="14" Height="14" CornerRadius="7" Margin="7,1,0,0" VerticalAlignment="Center"
+                                        BorderBrush="{DynamicResource Rw.TextFaint}" BorderThickness="1.2">
+                                    <TextBlock Text="i" FontSize="9.5" FontWeight="SemiBold" Foreground="{DynamicResource Rw.TextFaint}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                            </StackPanel>
+                            <TextBlock x:Name="Desc" Classes="caption" Margin="0,2,0,0" Text="{TemplateBinding Description}" IsVisible="False" />
                         </StackPanel>
                         <ContentPresenter Grid.Column="1" Content="{TemplateBinding Content}" VerticalAlignment="Center" />
                     </Grid>
                 </ControlTemplate>
             </Setter>
+        </Style>
+
+        <Style Selector="ui|SettingRow /template/ StackPanel#Head">
+            <Setter Property="ToolTip.Tip" Value="{Binding Description, RelativeSource={RelativeSource TemplatedParent}}" />
+        </Style>
+        <Style Selector="ui|SettingRow /template/ Border#Info">
+            <Setter Property="IsVisible" Value="{Binding Description, RelativeSource={RelativeSource TemplatedParent}, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        </Style>
+        <Style Selector="ui|SettingRow[Inline=True] /template/ StackPanel#Head">
+            <Setter Property="ToolTip.Tip" Value="{x:Null}" />
+        </Style>
+        <Style Selector="ui|SettingRow[Inline=True] /template/ Border#Info">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="ui|SettingRow[Inline=True] /template/ TextBlock#Desc">
+            <Setter Property="IsVisible" Value="{Binding Description, RelativeSource={RelativeSource TemplatedParent}, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        </Style>
+        <Style Selector="ToolTip">
+            <Setter Property="MaxWidth" Value="340" />
+            <Setter Property="Padding" Value="12,8" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Background" Value="{DynamicResource Rw.Window}" />
+            <Setter Property="Foreground" Value="{DynamicResource Rw.Text}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Rw.CardStroke}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontSize" Value="13" />
         </Style>
 
         <Style Selector="ToggleSwitch">

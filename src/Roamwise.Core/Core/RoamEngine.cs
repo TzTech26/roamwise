@@ -39,6 +39,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
     private static readonly TimeSpan MinGapBetweenScans = TimeSpan.FromSeconds(5);
 
     private readonly AppSettings _settings;
+    private string? _ssid;
     private readonly ActivityLog _log;
     private readonly IWifiBackend _wlan;
     private readonly CancellationTokenSource _stop = new();
@@ -60,6 +61,9 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
 
     public EngineSnapshot Snapshot { get; private set; } = new();
 
+    /// <summary>The rules for the network we are on (its own, or the ones for every network), read live so edits apply at once.</summary>
+    private RoamRules Rules => _settings.RulesFor(_ssid);
+
     public event Action<EngineSnapshot>? SnapshotChanged;
     public event Action<RoamResult>? Roamed;
 
@@ -73,7 +77,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         {
             // Rule changes should show up in the flyout right away, not at the next scheduled check.
             if (e.PropertyName is not nameof(AppSettings.Theme) and not nameof(AppSettings.StartWithWindows)
-                and not nameof(AppSettings.NotifyOnRoam) and not nameof(AppSettings.Sort))
+                and not nameof(AppSettings.NotifyOnRoam) and not nameof(AppSettings.Sort) and not nameof(AppSettings.ShowAllSettings))
                 Wake();
         };
     }
@@ -112,8 +116,8 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
                 else DebugLog.Unexpected(ex);
             }
 
-            var interval = TimeSpan.FromSeconds(_settings.ScanIntervalSeconds);
-            if (_settings.SlowerOnBattery && _wlan.OnBattery()) interval *= 2;
+            var interval = TimeSpan.FromSeconds(Rules.ScanIntervalSeconds);
+            if (Rules.SlowerOnBattery && _wlan.OnBattery()) interval *= 2;
             Publish(Snapshot with { NextCheck = DateTime.Now + interval });
             DebugLog.Write($"wait: up to {interval.TotalSeconds:0} s");
 
@@ -172,6 +176,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         }
 
         var connection = await _wlan.GetConnectionAsync(adapter, ct);
+        _ssid = connection?.Ssid;
         int nearby = all.Select(a => a.Ssid).Where(s => s.Length > 0).Distinct().Count();
         if (connection is null)
         {
@@ -190,13 +195,13 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         _lastProblem = null;
         int? liveRssi = await _wlan.GetRssiAsync(adapter, ct);
         var siblings = ReportedRadios.WithReported(SiblingsOf(connection, all, liveRssi), all, connection.Ssid);
-        var scored = siblings.Select(ap => ApScorer.Score(ap, _settings, all)).OrderByDescending(s => s.Total).ToList();
+        var scored = siblings.Select(ap => ApScorer.Score(ap, Rules, all)).OrderByDescending(s => s.Total).ToList();
         var current = scored.First(s => Mac.Equal(s.Ap.BssidBytes, connection.BssidBytes));
         bool managed = _settings.AppliesTo(connection.Ssid);
 
         PruneBlocked();
         var best = scored
-            .Where(s => s != current && s.Ap.HeardDirectly && !s.Ap.Stale && s.Ap.Rssi >= _settings.MinCandidateDbm && !_blocked.ContainsKey(s.Ap.Bssid))
+            .Where(s => s != current && s.Ap.HeardDirectly && !s.Ap.Stale && s.Ap.Rssi >= Rules.MinCandidateDbm && !_blocked.ContainsKey(s.Ap.Bssid))
             .MaxBy(s => s.Total);
 
         var snapshot = new EngineSnapshot
@@ -206,7 +211,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
             Siblings = scored,
             Current = current,
             // Only flagged in the UI once it clears the required improvement.
-            Candidate = best is not null && best.Total - current.Total >= _settings.MinImprovementDb ? best : null,
+            Candidate = best is not null && best.Total - current.Total >= Rules.MinImprovementDb ? best : null,
             IsManaged = managed,
             CanSwitch = _wlan.CanSwitch,
             NearbyNetworks = nearby,
@@ -246,7 +251,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         {
             ResetStreak();
             string paused = _settings.Enabled && _settings.PausedUntil is DateTime until ? $"Paused until {until:t}." : "Auto-roam is paused.";
-            return best is not null && best.Total - current.Total >= _settings.MinImprovementDb
+            return best is not null && best.Total - current.Total >= Rules.MinImprovementDb
                 ? $"{paused} {Label(best.Ap)} would be {Gain(best, current)} better."
                 : $"{paused} You're on the best access point anyway.";
         }
@@ -257,25 +262,25 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
                 ? $"{ssid} isn't on your list of networks to manage."
                 : $"{ssid} is on your excluded list, so Roamwise leaves it alone.";
         }
-        if (_settings.OnlyWhenWeak && current.Ap.Rssi > _settings.WeakSignalDbm)
+        if (Rules.OnlyWhenWeak && current.Ap.Rssi > Rules.WeakSignalDbm)
         {
             ResetStreak();
-            return $"Signal is {WifiText.Dbm(current.Ap.Rssi)} dBm, above your {WifiText.Dbm(_settings.WeakSignalDbm)} dBm trigger. Staying put.";
+            return $"Signal is {WifiText.Dbm(current.Ap.Rssi)} dBm, above your {WifiText.Dbm(Rules.WeakSignalDbm)} dBm trigger. Staying put.";
         }
         if (best is null)
         {
             ResetStreak();
             string them = others == 1 ? "The other access point is" : $"The other {others} access points are";
-            return $"{them} weaker than your {WifiText.Dbm(_settings.MinCandidateDbm)} dBm minimum. Staying put.";
+            return $"{them} weaker than your {WifiText.Dbm(Rules.MinCandidateDbm)} dBm minimum. Staying put.";
         }
 
         double gain = best.Total - current.Total;
-        if (gain < _settings.MinImprovementDb)
+        if (gain < Rules.MinImprovementDb)
         {
             ResetStreak();
             return gain <= 0
                 ? $"You're on the best of {heard} access points for {ssid}."
-                : $"{Label(best.Ap)} is only {Gain(best, current)} better. Switching needs +{_settings.MinImprovementDb}.";
+                : $"{Label(best.Ap)} is only {Gain(best, current)} better. Switching needs +{Rules.MinImprovementDb}.";
         }
 
         if (!snap.CanSwitch)
@@ -286,17 +291,17 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
 
         if (_streakBssid != best.Ap.Bssid) { _streakBssid = best.Ap.Bssid; _streak = 0; }
         _streak++;
-        int remaining = _settings.ConfirmScans - _streak;
+        int remaining = Rules.ConfirmScans - _streak;
         if (remaining > 0)
             return $"{Label(best.Ap)} is {Gain(best, current)} better. Confirming over {Plural(remaining, "more check")}.";
 
-        var wait = _lastRoam + TimeSpan.FromSeconds(_settings.CooldownSeconds) - DateTime.Now;
+        var wait = _lastRoam + TimeSpan.FromSeconds(Rules.CooldownSeconds) - DateTime.Now;
         if (wait > TimeSpan.Zero)
             return $"{Label(best.Ap)} is {Gain(best, current)} better. Waiting {Math.Ceiling(wait.TotalSeconds)} s after the last switch.";
 
         // A switch drops the connection for a moment; don't do it in the middle of a call or download,
         // unless the current link is so weak it's barely working anyway.
-        if (_settings.HoldOffWhenBusy && _mbps >= _settings.BusyMbps && current.Ap.Rssi > -80)
+        if (Rules.HoldOffWhenBusy && _mbps >= Rules.BusyMbps && current.Ap.Rssi > -80)
             return $"{Label(best.Ap)} is {Gain(best, current)} better. Holding off while you're using the network ({_mbps:0.#} Mbps).";
 
         roam = true;
@@ -360,7 +365,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         // Scans don't catch every radio every time. Keep ones heard recently, marked stale, so the list
         // doesn't flicker; stale radios are shown but never picked automatically.
         var now = DateTime.Now;
-        var keepFor = TimeSpan.FromSeconds(Math.Max(75, _settings.ScanIntervalSeconds * 2.5));
+        var keepFor = TimeSpan.FromSeconds(Math.Max(75, Rules.ScanIntervalSeconds * 2.5));
         foreach (var ap in siblings) _recent[ap.Bssid] = (ap, now);
         foreach (var key in _recent.Where(kv => now - kv.Value.seen > keepFor || kv.Value.ap.Ssid != connection.Ssid).Select(kv => kv.Key).ToList())
             _recent.Remove(key);

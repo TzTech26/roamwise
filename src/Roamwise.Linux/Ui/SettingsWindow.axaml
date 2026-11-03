@@ -53,7 +53,7 @@
                 <ListBox x:Name="Nav" Background="Transparent" SelectionChanged="Nav_SelectionChanged">
                     <ListBoxItem Content="General" Tag="general" />
                     <ListBoxItem Content="Switching" Tag="roaming" />
-                    <ListBoxItem Content="Ranking" Tag="ranking" />
+                    <ListBoxItem x:Name="NavRanking" Content="Ranking" Tag="ranking" />
                     <ListBoxItem Content="Networks" Tag="networks" />
                     <ListBoxItem Content="Names" Tag="names" />
                     <ListBoxItem Content="Activity" Tag="activity" />
@@ -117,13 +117,56 @@
                 <!-- When to switch -->
                 <StackPanel x:Name="PageRoaming" IsVisible="False">
                     <TextBlock Text="Switching" Classes="pageTitle" />
-                    <Border Margin="0,16,0,0" Padding="16,12" CornerRadius="6" Background="{DynamicResource Rw.Surface}"
-                            BorderBrush="{DynamicResource Rw.CardStroke}" BorderThickness="1">
-                        <Grid ColumnDefinitions="Auto,*">
-                            <Border Width="3" CornerRadius="1.5" Background="{DynamicResource Rw.AccentText}" Margin="0,2,14,2" />
-                            <TextBlock x:Name="RulesSummary" Grid.Column="1" Classes="body" />
-                        </Grid>
+
+                    <Border Classes="card" Margin="0,16,0,0">
+                        <StackPanel>
+                            <ui:SettingRow Header="Rules for"
+                                           Description="Give a network its own rules, like staying put at home and switching eagerly at work. Networks without their own use the rules for all networks.">
+                                <ComboBox x:Name="RulesForBox" Width="260" SelectionChanged="RulesFor_SelectionChanged">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="ui:RuleTarget">
+                                            <TextBlock Text="{Binding Title}" />
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                            </ui:SettingRow>
+                            <Border x:Name="RulesForDivider" Classes="divider" />
+                            <Grid x:Name="RulesForStatus" ColumnDefinitions="*,Auto" Margin="16,10,16,10">
+                                <TextBlock x:Name="RulesForText" Classes="caption" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,16,0" />
+                                <Button x:Name="RulesForButton" Grid.Column="1" Click="RulesForButton_Click" />
+                            </Grid>
+                        </StackPanel>
                     </Border>
+
+                    <TextBlock Text="Style" Classes="groupHeading" />
+                    <Border Classes="card">
+                        <StackPanel>
+                            <ui:SettingRow x:Name="PresetRow" Header="How eagerly to switch">
+                                <Border Classes="segments">
+                                    <StackPanel Orientation="Horizontal">
+                                        <RadioButton x:Name="PresetPassive" Classes="segment" GroupName="Preset" Content="Passive"
+                                                     Tag="{x:Static core:RulePreset.Passive}" IsCheckedChanged="Preset_Changed" />
+                                        <RadioButton x:Name="PresetBalanced" Classes="segment" GroupName="Preset" Content="Balanced"
+                                                     Tag="{x:Static core:RulePreset.Balanced}" IsCheckedChanged="Preset_Changed" />
+                                        <RadioButton x:Name="PresetAggressive" Classes="segment" GroupName="Preset" Content="Aggressive"
+                                                     Tag="{x:Static core:RulePreset.Aggressive}" IsCheckedChanged="Preset_Changed" />
+                                    </StackPanel>
+                                </Border>
+                            </ui:SettingRow>
+                            <Border Classes="divider" />
+                            <Grid ColumnDefinitions="Auto,*" Margin="16,12">
+                                <Border Width="3" CornerRadius="1.5" Background="{DynamicResource Rw.AccentText}" Margin="0,2,14,2" />
+                                <TextBlock x:Name="RulesSummary" Grid.Column="1" Classes="body" TextWrapping="Wrap" />
+                            </Grid>
+                            <Border Classes="divider" />
+                            <ui:SettingRow Header="Show all settings" Description="Fine-tune each rule yourself, and how access points are ranked.">
+                                <ToggleSwitch IsChecked="{Binding ShowAllSettings}" />
+                            </ui:SettingRow>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Every rule; bound to the rules picked above. -->
+                    <StackPanel x:Name="AdvancedRules" x:DataType="core:RoamRules">
 
                     <TextBlock Text="Checking" Classes="groupHeading" />
                     <Border Classes="card">
@@ -205,11 +248,13 @@
                     </Border>
 
                     <Button Content="Restore default rules" HorizontalAlignment="Left" Margin="0,20,0,0" Click="ResetRules_Click" />
+                    </StackPanel>
                 </StackPanel>
 
                 <!-- How APs are ranked -->
-                <StackPanel x:Name="PageRanking" IsVisible="False">
+                <StackPanel x:Name="PageRanking" IsVisible="False" x:DataType="core:RoamRules">
                     <TextBlock Text="Ranking" Classes="pageTitle" />
+                    <TextBlock x:Name="RankingFor" Classes="caption" Margin="0,6,0,0" TextWrapping="Wrap" />
                     <TextBlock Classes="body" Foreground="{DynamicResource Rw.TextMuted}" Margin="0,12,0,0" MaxWidth="640" HorizontalAlignment="Left"
                                Text="Each access point gets a score that starts at its signal strength in dBm. Faster bands and wider channels add points, busy access points lose points. Bonuses fade out between −65 and −80 dBm, so a weak fast connection never beats a solid slower one." />
 
@@ -319,7 +364,7 @@
                     <TextBlock Text="Look up names" Classes="groupHeading" />
                     <Border Classes="card">
                         <StackPanel>
-                            <ui:SettingRow x:Name="SourceRow" Header="Get names from">
+                            <ui:SettingRow x:Name="SourceRow" Header="Get names from" Inline="True">
                                 <ComboBox x:Name="SourceBox" Width="280" SelectionChanged="SourceBox_SelectionChanged">
                                     <ComboBox.ItemTemplate>
                                         <DataTemplate x:DataType="core:NameSourceInfo">

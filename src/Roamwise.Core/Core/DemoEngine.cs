@@ -39,9 +39,10 @@ public sealed class DemoEngine(AppSettings settings) : IRoamEngine
             Ap("Harbor Guest", "3e:28:6d:a4:f1:20", -70, WifiBand.Ghz5, 44, 80, WifiGeneration.Wifi6, 62, 12, name: "Lobby"),
         };
         var siblings = aps.Where(a => a.Ssid == "Harbor Office").ToList();
-        var scored = siblings.Select(a => ApScorer.Score(a, settings, aps)).OrderByDescending(s => s.Total).ToList();
+        var rules = settings.RulesFor("Harbor Office");
+        var scored = siblings.Select(a => ApScorer.Score(a, rules, aps)).OrderByDescending(s => s.Total).ToList();
         var current = scored.First(s => s.Ap.Bssid == "3c:28:6d:a4:f1:20");
-        var best = scored.Where(s => s != current && s.Ap.Rssi >= settings.MinCandidateDbm).MaxBy(s => s.Total);
+        var best = scored.Where(s => s != current && s.Ap.Rssi >= rules.MinCandidateDbm).MaxBy(s => s.Total);
 
         Snapshot = new EngineSnapshot
         {
@@ -53,7 +54,7 @@ public sealed class DemoEngine(AppSettings settings) : IRoamEngine
             },
             Siblings = scored,
             Current = current,
-            Candidate = best is not null && best.Total - current.Total >= settings.MinImprovementDb ? best : null,
+            Candidate = best is not null && best.Total - current.Total >= rules.MinImprovementDb ? best : null,
             IsManaged = true,
             NearbyNetworks = 2,
             Decision = best is null ? "You're on the best access point."

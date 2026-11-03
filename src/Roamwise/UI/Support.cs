@@ -23,6 +23,12 @@ public sealed class SettingRow : ContentControl
 
     public string? Header { get => (string?)GetValue(HeaderProperty); set => SetValue(HeaderProperty, value); }
     public string? Description { get => (string?)GetValue(DescriptionProperty); set => SetValue(DescriptionProperty, value); }
+
+    public static readonly DependencyProperty InlineProperty =
+        DependencyProperty.Register(nameof(Inline), typeof(bool), typeof(SettingRow));
+
+    /// <summary>Show the description under the header instead of on hover, for text you need while filling the row in.</summary>
+    public bool Inline { get => (bool)GetValue(InlineProperty); set => SetValue(InlineProperty, value); }
 }
 
 /// <summary>Follows the Windows light/dark setting and accent color, or the user's override.</summary>

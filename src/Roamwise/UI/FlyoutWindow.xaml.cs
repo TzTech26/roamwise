@@ -128,13 +128,16 @@ public partial class FlyoutWindow : Window
 
     private void SyncRules()
     {
-        Field.MinCandidateDbm = _settings.MinCandidateDbm;
-        Field.WeakDbm = _settings.OnlyWhenWeak ? _settings.WeakSignalDbm : null;
+        // The marks follow the rules of the network you are on.
+        var rules = _settings.RulesFor(_snap.Connection?.Ssid);
+        Field.MinCandidateDbm = rules.MinCandidateDbm;
+        Field.WeakDbm = rules.OnlyWhenWeak ? rules.WeakSignalDbm : null;
     }
 
     private void Render(EngineSnapshot s)
     {
         _snap = s;
+        SyncRules();
         var conn = s.Connection;
         bool connected = s.State == EngineState.Connected && conn is not null && s.Current is not null;
 

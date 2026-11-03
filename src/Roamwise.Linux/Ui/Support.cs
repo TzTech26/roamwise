@@ -17,7 +17,15 @@ public sealed class SettingRow : ContentControl
 
     public string? Header { get => GetValue(HeaderProperty); set => SetValue(HeaderProperty, value); }
     public string? Description { get => GetValue(DescriptionProperty); set => SetValue(DescriptionProperty, value); }
+
+    public static readonly StyledProperty<bool> InlineProperty = AvaloniaProperty.Register<SettingRow, bool>(nameof(Inline));
+
+    /// <summary>Show the description under the header instead of on hover, for text you need while filling the row in.</summary>
+    public bool Inline { get => GetValue(InlineProperty); set => SetValue(InlineProperty, value); }
 }
+
+/// <summary>A choice of whose rules the Switching and Ranking pages show.</summary>
+public sealed record RuleTarget(string Title, string? Ssid);
 
 public static class Res
 {

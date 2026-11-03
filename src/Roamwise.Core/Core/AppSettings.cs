@@ -30,22 +30,12 @@ public sealed class AppSettings : INotifyPropertyChanged
     private bool _startWithWindows;
     private bool _notifyOnRoam = true;
     private ThemePreference _theme = ThemePreference.System;
+    private bool _showAllSettings;
 
-    private int _scanIntervalSeconds = 30;
-    private bool _slowerOnBattery = true;
-    private bool _onlyWhenWeak;
-    private int _weakSignalDbm = -67;
-    private int _minImprovementDb = 8;
-    private int _minCandidateDbm = -72;
-    private int _confirmScans = 2;
-    private int _cooldownSeconds = 120;
-    private bool _holdOffWhenBusy = true;
-    private int _busyMbps = 2;
+    private RoamRules _rules = new();
+    private Dictionary<string, RoamRules> _networkRules = new(StringComparer.OrdinalIgnoreCase);
 
-    private int _bonus5GhzDb = 6;
-    private int _bonus6GhzDb = 8;
-    private bool _avoid24Ghz;
-    private bool _considerLoad = true;
+    public AppSettings() => Watch(_rules);
 
     private NetworkScope _scope = NetworkScope.AllExceptExcluded;
     private bool _lowLatencyMode;
@@ -67,29 +57,70 @@ public sealed class AppSettings : INotifyPropertyChanged
     public bool StartWithWindows { get => _startWithWindows; set => Set(ref _startWithWindows, value); }
     public bool NotifyOnRoam { get => _notifyOnRoam; set => Set(ref _notifyOnRoam, value); }
     public ThemePreference Theme { get => _theme; set => Set(ref _theme, value); }
+    /// <summary>Settings show every rule instead of just the presets.</summary>
+    public bool ShowAllSettings { get => _showAllSettings; set => Set(ref _showAllSettings, value); }
 
     /// <summary>Auto-roam is on and no timed pause is running.</summary>
     [JsonIgnore]
     public bool IsRoaming => Enabled && !(PausedUntil > DateTime.Now);
 
-    // When to check and when to switch
-    public int ScanIntervalSeconds { get => _scanIntervalSeconds; set => Set(ref _scanIntervalSeconds, Math.Clamp(value, 10, 600)); }
-    public bool SlowerOnBattery { get => _slowerOnBattery; set => Set(ref _slowerOnBattery, value); }
-    public bool OnlyWhenWeak { get => _onlyWhenWeak; set => Set(ref _onlyWhenWeak, value); }
-    public int WeakSignalDbm { get => _weakSignalDbm; set => Set(ref _weakSignalDbm, Math.Clamp(value, -85, -50)); }
-    public int MinImprovementDb { get => _minImprovementDb; set => Set(ref _minImprovementDb, Math.Clamp(value, 3, 25)); }
-    public int MinCandidateDbm { get => _minCandidateDbm; set => Set(ref _minCandidateDbm, Math.Clamp(value, -85, -50)); }
-    public int ConfirmScans { get => _confirmScans; set => Set(ref _confirmScans, Math.Clamp(value, 1, 6)); }
-    public int CooldownSeconds { get => _cooldownSeconds; set => Set(ref _cooldownSeconds, Math.Clamp(value, 30, 1800)); }
-    /// <summary>Don't switch while traffic is above <see cref="BusyMbps"/>, since a switch briefly drops the connection.</summary>
-    public bool HoldOffWhenBusy { get => _holdOffWhenBusy; set => Set(ref _holdOffWhenBusy, value); }
-    public int BusyMbps { get => _busyMbps; set => Set(ref _busyMbps, Math.Clamp(value, 1, 50)); }
+    // When to check, when to switch, how access points are ranked
+    /// <summary>The rules for every network without rules of its own.</summary>
+    public RoamRules Rules
+    {
+        get => _rules;
+        set
+        {
+            _rules.PropertyChanged -= OnRulesChanged;
+            _rules = Watch(value ?? new RoamRules());
+            Raise(nameof(Rules));
+        }
+    }
 
-    // How access points are ranked
-    public int Bonus5GhzDb { get => _bonus5GhzDb; set => Set(ref _bonus5GhzDb, Math.Clamp(value, 0, 15)); }
-    public int Bonus6GhzDb { get => _bonus6GhzDb; set => Set(ref _bonus6GhzDb, Math.Clamp(value, 0, 15)); }
-    public bool Avoid24Ghz { get => _avoid24Ghz; set => Set(ref _avoid24Ghz, value); }
-    public bool ConsiderLoad { get => _considerLoad; set => Set(ref _considerLoad, value); }
+    /// <summary>Networks (by SSID) with rules of their own, used instead of <see cref="Rules"/> while connected to them.</summary>
+    public Dictionary<string, RoamRules> NetworkRules
+    {
+        get => _networkRules;
+        set
+        {
+            _networkRules = new Dictionary<string, RoamRules>(value ?? [], StringComparer.OrdinalIgnoreCase);
+            foreach (var rules in _networkRules.Values) Watch(rules);
+            Raise(nameof(NetworkRules));
+        }
+    }
+
+    /// <summary>The rules in effect on a network: its own, or the ones for every network.</summary>
+    public RoamRules RulesFor(string? ssid) => ssid is not null && _networkRules.TryGetValue(ssid, out var own) ? own : _rules;
+
+    public bool HasOwnRules(string ssid) => _networkRules.ContainsKey(ssid);
+
+    /// <summary>Gives a network its own rules, starting from the ones for every network.</summary>
+    public RoamRules CustomizeRules(string ssid)
+    {
+        if (_networkRules.TryGetValue(ssid, out var own)) return own;
+        own = Watch(_rules.Copy());
+        _networkRules[ssid] = own;
+        Raise(nameof(NetworkRules));
+        return own;
+    }
+
+    /// <summary>The network goes back to the rules for every network.</summary>
+    public void RemoveRules(string ssid)
+    {
+        if (!_networkRules.Remove(ssid, out var own)) return;
+        own.PropertyChanged -= OnRulesChanged;
+        Raise(nameof(NetworkRules));
+    }
+
+    private RoamRules Watch(RoamRules rules)
+    {
+        rules.PropertyChanged -= OnRulesChanged;
+        rules.PropertyChanged += OnRulesChanged;
+        return rules;
+    }
+
+    // A rule changing anywhere counts as a setting change: it gets saved and the engine checks again.
+    private void OnRulesChanged(object? sender, PropertyChangedEventArgs e) => Raise(e.PropertyName);
 
     // Which networks
     public NetworkScope Scope { get => _scope; set => Set(ref _scope, value); }
@@ -126,18 +157,61 @@ public sealed class AppSettings : INotifyPropertyChanged
     public List<ControllerDevice> NamedDevices { get; set; } = [];
     public DateTime? ControllerSyncedAt { get; set; }
 
+    // Settings files before 1.3 kept the rules at the top level.
+    [JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    private int? ScanIntervalSeconds { get => null; set { if (value is int v) _rules.ScanIntervalSeconds = v; } }
+
+    [JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    private bool? SlowerOnBattery { get => null; set { if (value is bool v) _rules.SlowerOnBattery = v; } }
+
+    [JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    private bool? OnlyWhenWeak { get => null; set { if (value is bool v) _rules.OnlyWhenWeak = v; } }
+
+    [JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    private int? WeakSignalDbm { get => null; set { if (value is int v) _rules.WeakSignalDbm = v; } }
+
+    [JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    private int? MinImprovementDb { get => null; set { if (value is int v) _rules.MinImprovementDb = v; } }
+
+    [JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    private int? MinCandidateDbm { get => null; set { if (value is int v) _rules.MinCandidateDbm = v; } }
+
+    [JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    private int? ConfirmScans { get => null; set { if (value is int v) _rules.ConfirmScans = v; } }
+
+    [JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    private int? CooldownSeconds { get => null; set { if (value is int v) _rules.CooldownSeconds = v; } }
+
+    [JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    private bool? HoldOffWhenBusy { get => null; set { if (value is bool v) _rules.HoldOffWhenBusy = v; } }
+
+    [JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    private int? BusyMbps { get => null; set { if (value is int v) _rules.BusyMbps = v; } }
+
+    [JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    private int? Bonus5GhzDb { get => null; set { if (value is int v) _rules.Bonus5GhzDb = v; } }
+
+    [JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    private int? Bonus6GhzDb { get => null; set { if (value is int v) _rules.Bonus6GhzDb = v; } }
+
+    [JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    private bool? Avoid24Ghz { get => null; set { if (value is bool v) _rules.Avoid24Ghz = v; } }
+
+    [JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    private bool? ConsiderLoad { get => null; set { if (value is bool v) _rules.ConsiderLoad = v; } }
+
     // Settings files from 1.0 stored a UniFi controller under these names.
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public JsonElement? ControllerDevices { get => null; set { } }
 
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? UnifiHost
     {
         get => null;
         set { if (!string.IsNullOrEmpty(value) && ControllerAddress.Length == 0) { _nameSource = NameSourceKind.Unifi; _controllerAddress = value; } }
     }
 
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? UnifiApiKeyProtected
     {
         get => null;

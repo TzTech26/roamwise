@@ -28,7 +28,7 @@ public static class ApScorer
     private const double FullBonusDbm = -65;
     private const double FadeEndDbm = -80;
 
-    public static ApScore Score(AccessPoint ap, AppSettings s, IReadOnlyList<AccessPoint> everything)
+    public static ApScore Score(AccessPoint ap, RoamRules s, IReadOnlyList<AccessPoint> everything)
     {
         // Known only from a neighbor report: no signal reading, so no fair score.
         if (!ap.HeardDirectly) return new ApScore(ap, double.NaN, 0, 0, 0, 0);

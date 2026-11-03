@@ -317,20 +317,57 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <StackPanel VerticalAlignment="Center" Margin="0,0,24,0">
-                            <TextBlock Text="{TemplateBinding Header}" Style="{StaticResource Rw.Body}" />
-                            <TextBlock x:Name="Desc" Text="{TemplateBinding Description}" Style="{StaticResource Rw.Caption}" Margin="0,2,0,0" />
+                        <!-- The explanation shows on hover (the info mark), or always for rows marked Inline. -->
+                        <StackPanel x:Name="Head" VerticalAlignment="Center" Margin="0,0,24,0" Background="Transparent"
+                                    ToolTip="{TemplateBinding Description}" ToolTipService.InitialShowDelay="200" ToolTipService.ShowDuration="60000">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{TemplateBinding Header}" Style="{StaticResource Rw.Body}" />
+                                <TextBlock x:Name="Info" Text="&#xE946;" Style="{StaticResource Rw.Glyph}" FontSize="12"
+                                           Foreground="{DynamicResource Rw.TextFaint}" Margin="7,1,0,0" />
+                            </StackPanel>
+                            <TextBlock x:Name="Desc" Text="{TemplateBinding Description}" Style="{StaticResource Rw.Caption}" Margin="0,2,0,0" Visibility="Collapsed" />
                         </StackPanel>
                         <ContentPresenter Grid.Column="1" VerticalAlignment="Center" />
                     </Grid>
                     <ControlTemplate.Triggers>
+                        <Trigger Property="Inline" Value="True">
+                            <Setter TargetName="Desc" Property="Visibility" Value="Visible" />
+                            <Setter TargetName="Info" Property="Visibility" Value="Collapsed" />
+                            <Setter TargetName="Head" Property="ToolTip" Value="{x:Null}" />
+                        </Trigger>
                         <Trigger Property="Description" Value="{x:Null}">
                             <Setter TargetName="Desc" Property="Visibility" Value="Collapsed" />
+                            <Setter TargetName="Info" Property="Visibility" Value="Collapsed" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.5" />
                         </Trigger>
                     </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Hover explanations -->
+    <Style TargetType="ToolTip">
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="HasDropShadow" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToolTip">
+                    <Border Background="{DynamicResource Rw.FlyoutFallback}" BorderBrush="{DynamicResource Rw.CardStroke}" BorderThickness="1"
+                            CornerRadius="6" Padding="12,8" MaxWidth="340" Margin="0,0,6,6">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.25" />
+                        </Border.Effect>
+                        <ContentPresenter>
+                            <ContentPresenter.Resources>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource Rw.Body}">
+                                    <Setter Property="TextWrapping" Value="Wrap" />
+                                </Style>
+                            </ContentPresenter.Resources>
+                        </ContentPresenter>
+                    </Border>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>

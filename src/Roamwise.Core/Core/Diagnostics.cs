@@ -22,7 +22,7 @@ public static class Diagnostics
             var adapters = await wlan.GetAdaptersAsync(ct);
             foreach (string line in wlan.DiagnosticsHeader()) sb.AppendLine(line);
             sb.AppendLine($"Can switch access points: {wlan.CanSwitch}");
-            var settings = new AppSettings();
+            var rules = new RoamRules();
             foreach (var adapter in adapters)
             {
                 sb.AppendLine().AppendLine($"Adapter: {adapter.Name} ({adapter.Description}) {adapter.Id} connected={adapter.IsConnected}");
@@ -37,7 +37,7 @@ public static class Diagnostics
                     sb.AppendLine($"Access points: {aps.Count}");
                     foreach (var ap in aps.OrderBy(a => a.Ssid).ThenByDescending(a => a.Rssi))
                     {
-                        var score = ApScorer.Score(ap, settings, aps);
+                        var score = ApScorer.Score(ap, rules, aps);
                         sb.AppendLine($"  {(ap.Ssid.Length == 0 ? "(hidden)" : ap.Ssid),-28} {ap.Bssid}  {ap.Rssi,4} dBm  {WifiText.Band(ap.Band),-8} ch {ap.Channel,-3} " +
                                       $"{ap.WidthMHz,3} MHz  {WifiText.Generation(ap.Generation),-12} load {(ap.ChannelUtilization?.ToString() ?? "-"),3}%  " +
                                       $"sta {(ap.StationCount?.ToString() ?? "-"),3}  score {score.Total,6:0.0}  [{score.Explain()}]");

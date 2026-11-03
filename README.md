@@ -25,6 +25,9 @@ Your computer tends to stick with the first access point it joined, even after y
 
 Everything is adjustable from **Settings** (the gear in the panel, or right-click the tray icon).
 
+- **Pick a style.** Switching starts with three presets: **Passive** (leave a working connection alone until the signal gets weak), **Balanced** (the default) and **Aggressive** (check often, move as soon as another access point is clearly better). Turn on **Show all settings** to tune each rule below and how access points are ranked. Hover a setting's ⓘ for what it does.
+- **Different rules per network.** Under **Rules for**, pick a network and give it its own rules, for example Passive at home and Aggressive at the office. Roamwise switches to them automatically whenever you're on that network; every other network uses the rules for all networks.
+
 | Setting | Default | What it means |
 | --- | --- | --- |
 | Check every | 30 s | How often Roamwise scans. Doubled on battery if you want. |
