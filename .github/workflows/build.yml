@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [main]
+    branches: [main, linux-port]
     tags: ["v*"]
   pull_request:
 
