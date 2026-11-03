@@ -27,7 +27,7 @@ nm = dbus.Interface(nm_obj, dbusmock.MOCK_IFACE)
 device = nm.AddWiFiDevice("mock_wifi0", "wlan0", 100)
 aps = [nm.AddAccessPoint(device, f"ap{i}", "Office", bssid, 2, freq, 54000, strength, 0x100)
        for i, (bssid, freq, strength, _) in enumerate(APS)]
-connection = nm.AddWiFiConnection(device, "office-conn", "Office", "wpa-psk")
+connection = nm.AddWiFiConnection(device, "Office", "Office", "wpa-psk")
 nm.AddActiveConnection([device], connection, aps[0], "Office", 2)
 props = dbus.Interface(dbus.SessionBus().get_object("org.freedesktop.NetworkManager", device), dbus.PROPERTIES_IFACE)
 props.Set("org.freedesktop.NetworkManager.Device.Wireless", "ActiveAccessPoint", dbus.ObjectPath(aps[0]))
