@@ -117,7 +117,7 @@ Useful switches for `Roamwise.exe` and the Linux `roamwise` / AppImage:
 - `--diagnose report.txt` writes everything Roamwise sees (adapters, connection, every access point with its score) and exits. Attach it to bug reports.
 - `--demo` shows the UI with a made-up busy office network.
 
-Settings and the activity history live in `%APPDATA%\Roamwise` on Windows and `~/.config/Roamwise` on Linux.
+Settings and the activity history live in `%APPDATA%\Roamwise` on Windows and `~/.config/Roamwise` on Linux. Unexpected errors are written there to `errors.log`; attach it to bug reports.
 
 ## Project layout
 

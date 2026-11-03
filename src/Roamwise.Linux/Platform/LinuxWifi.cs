@@ -167,6 +167,11 @@ public sealed class LinuxWifi : IWifiBackend
         {
             try { return await SupplicantAccessPointsAsync(bus, wpa); }
             catch (DBusException) { _wpaInterface = null; } // fell back below; setup may have been removed
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Something in the supplicant's answer we can't read: use NetworkManager's view this time and keep the details.
+                DebugLog.Unexpected(ex);
+            }
         }
         try { return await NetworkManagerAccessPointsAsync(bus, adapter); }
         catch (DBusException ex) { throw NmMissing(ex); }
@@ -180,7 +185,7 @@ public sealed class LinuxWifi : IWifiBackend
         foreach (var path in paths)
         {
             Dictionary<string, VariantValue> p;
-            try { p = await bus.GetAllAsync(Wpa, path, WpaBss); }
+            try { p = await BssPropertiesAsync(bus, path); }
             catch (DBusException) { continue; } // expired between the two calls
             if (p.Num("Age", 0) > 90) continue; // not heard for a while; the supplicant keeps them up to 3 minutes
 
@@ -221,6 +226,25 @@ public sealed class LinuxWifi : IWifiBackend
             });
         }
         return result;
+    }
+
+    private static readonly string[] BssFields = ["BSSID", "SSID", "Frequency", "Signal", "Age", "IEs"];
+
+    /// <summary>
+    /// A BSS's properties in one call. If the reply holds something we can't decode (the supplicant adds nested
+    /// properties over time), read just the ones Roamwise uses.
+    /// </summary>
+    private static async Task<Dictionary<string, VariantValue>> BssPropertiesAsync(Bus bus, string path)
+    {
+        try { return await bus.GetAllAsync(Wpa, path, WpaBss); }
+        catch (Exception ex) when (ex is not DBusException and not OperationCanceledException)
+        {
+            DebugLog.Unexpected(ex);
+            var values = new Dictionary<string, VariantValue>();
+            foreach (string name in BssFields)
+                values[name] = await bus.GetAsync(Wpa, path, WpaBss, name);
+            return values;
+        }
     }
 
     /// <summary>What any user can read: signal as a percentage, frequency, and channel width on NetworkManager 1.46+.</summary>
@@ -308,6 +332,11 @@ public sealed class LinuxWifi : IWifiBackend
             return poll.TryGetValue("rssi", out var r) ? (int)Props.Num(r) : null;
         }
         catch (DBusException) { return null; }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            DebugLog.Unexpected(ex);
+            return null;
+        }
     }
 
     public async Task<IReadOnlyList<string>> GetSavedNetworksAsync(WifiAdapter adapter, CancellationToken ct)
@@ -375,6 +404,7 @@ public sealed class LinuxWifi : IWifiBackend
                     return true;
             }
             catch (DBusException) { }
+            catch (Exception ex) when (ex is not OperationCanceledException) { DebugLog.Unexpected(ex); }
         }
         return false;
     }
@@ -404,6 +434,7 @@ public sealed class LinuxWifi : IWifiBackend
             }
             catch (OperationCanceledException) { return; }
             catch (Exception ex) when (ex is DBusException or DisconnectedException or InvalidOperationException) { }
+            catch (Exception ex) { DebugLog.Unexpected(ex); }
         }
     }
 
