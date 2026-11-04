@@ -6,14 +6,16 @@ namespace Roamwise.Core;
 /// <summary>
 /// Adds the 6 GHz radios a network's access points advertise in their neighbor reports but that Windows
 /// hasn't heard itself. Without this, a 6 GHz radio that's a little out of reach simply vanishes from the list.
+/// Skipped when the adapter has no 6 GHz: those radios aren't out of reach, they're unusable.
 /// </summary>
 public static class ReportedRadios
 {
-    public static List<AccessPoint> WithReported(List<AccessPoint> siblings, IReadOnlyList<AccessPoint> all, string ssid)
+    public static List<AccessPoint> WithReported(List<AccessPoint> siblings, IReadOnlyList<AccessPoint> all, string ssid, bool adapterHas6Ghz = true)
     {
+        var result = new List<AccessPoint>(siblings);
+        if (!adapterHas6Ghz) return result;
         uint shortSsid = InfoElements.ShortSsid(ssid);
         var heard = all.Select(a => a.Bssid).ToHashSet();
-        var result = new List<AccessPoint>(siblings);
 
         foreach (var reporter in siblings.Where(s => s.HeardDirectly))
         {

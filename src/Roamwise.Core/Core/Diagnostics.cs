@@ -22,10 +22,12 @@ public static class Diagnostics
             var adapters = await wlan.GetAdaptersAsync(ct);
             foreach (string line in wlan.DiagnosticsHeader()) sb.AppendLine(line);
             sb.AppendLine($"Can switch access points: {wlan.CanSwitch}");
+            if (wlan.Unsupported is string unsupported) sb.AppendLine($"Unsupported: {unsupported}");
             var rules = new RoamRules();
             foreach (var adapter in adapters)
             {
-                sb.AppendLine().AppendLine($"Adapter: {adapter.Name} ({adapter.Description}) {adapter.Id} connected={adapter.IsConnected}");
+                sb.AppendLine().AppendLine($"Adapter: {adapter.Name} ({adapter.Description}) {adapter.Id} connected={adapter.IsConnected} " +
+                                           $"6GHz={wlan.Supports6Ghz(adapter)?.ToString() ?? "unknown"}");
                 var conn = await wlan.GetConnectionAsync(adapter, ct);
                 sb.AppendLine(conn is null ? "Connection: none"
                     : $"Connection: profile '{conn.ProfileName}', ssid '{conn.Ssid}', bssid {conn.Bssid}, quality {conn.SignalQuality}, rx {conn.RxRateMbps} Mbps, rssi {await wlan.GetRssiAsync(adapter, ct)}");

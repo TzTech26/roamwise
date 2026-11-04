@@ -45,4 +45,19 @@ check "$work/roam.txt" "roam-test: now on 3c:28:6d:b2:07:9c"
 timeout 60 "$bin" --engine-test | tee "$work/engine-wpa.txt"
 check "$work/engine-wpa.txt" "state Connected, 3 radios"
 
+kill $mock; wait $mock 2>/dev/null || true
+
+echo "== NetworkManager on iwd"
+start_mock nm+iwd
+timeout 60 "$bin" --diagnose "$work/iwd.txt"
+cat "$work/iwd.txt"
+check "$work/iwd.txt" "Can switch access points: False"
+check "$work/iwd.txt" "iwd: in use"
+check "$work/iwd.txt" "Unsupported: NetworkManager runs Wi-Fi through iwd"
+check "$work/iwd.txt" "Access points: 2"
+if grep -q "00:01:02:00:00:01.*ch 2 " "$work/iwd.txt"; then echo "FAIL: iwd placeholder kept its made-up channel"; exit 1; fi
+timeout 60 "$bin" --engine-test | tee "$work/engine-iwd.txt"
+check "$work/engine-iwd.txt" "state Connected, 1 radios"
+check "$work/engine-iwd.txt" "can only see the access point you're on for Office"
+
 echo "All Linux D-Bus checks passed."

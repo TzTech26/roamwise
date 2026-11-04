@@ -17,6 +17,8 @@ public sealed record EngineSnapshot
     public bool IsRoaming { get; init; }
     /// <summary>False when the system lets Roamwise read access points but not switch (Linux before the one-time setup).</summary>
     public bool CanSwitch { get; init; } = true;
+    /// <summary>Set when switching can't work on this system at all, so asking for permission wouldn't help.</summary>
+    public string? Unsupported { get; init; }
     public int NearbyNetworks { get; init; }
     /// <summary>One plain sentence on what Roamwise decided and why.</summary>
     public string Decision { get; init; } = "Starting up…";
@@ -186,6 +188,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
                 State = EngineState.Disconnected,
                 NearbyNetworks = nearby,
                 CanSwitch = _wlan.CanSwitch,
+                Unsupported = _wlan.Unsupported,
                 Decision = "Not connected to Wi-Fi. Roamwise starts working once you join a network.",
                 LastCheck = DateTime.Now,
             });
@@ -194,7 +197,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
 
         _lastProblem = null;
         int? liveRssi = await _wlan.GetRssiAsync(adapter, ct);
-        var siblings = ReportedRadios.WithReported(SiblingsOf(connection, all, liveRssi), all, connection.Ssid);
+        var siblings = ReportedRadios.WithReported(SiblingsOf(connection, all, liveRssi), all, connection.Ssid, _wlan.Supports6Ghz(adapter) != false);
         var scored = siblings.Select(ap => ApScorer.Score(ap, Rules, all)).OrderByDescending(s => s.Total).ToList();
         var current = scored.First(s => Mac.Equal(s.Ap.BssidBytes, connection.BssidBytes));
         bool managed = _settings.AppliesTo(connection.Ssid);
@@ -214,6 +217,7 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
             Candidate = best is not null && best.Total - current.Total >= Rules.MinImprovementDb ? best : null,
             IsManaged = managed,
             CanSwitch = _wlan.CanSwitch,
+            Unsupported = _wlan.Unsupported,
             NearbyNetworks = nearby,
             LastCheck = DateTime.Now,
         };
@@ -245,6 +249,8 @@ public sealed class RoamEngine : IRoamEngine, IDisposable
         if (others == 0)
         {
             ResetStreak();
+            // The system may hide the others, so "the only one in range" would be a guess.
+            if (snap.Unsupported is not null) return $"Roamwise can only see the access point you're on for {ssid} on this system.";
             return $"This is the only access point for {ssid} in range, so there's nothing to switch to.";
         }
         if (!_settings.IsRoaming)

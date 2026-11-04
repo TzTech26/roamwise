@@ -34,7 +34,7 @@
                         <Grid ColumnDefinitions="Auto,*,Auto">
                             <Path Classes="line" Data="{StaticResource Rw.Icon.Lock}" Stroke="{DynamicResource Rw.AccentText}" VerticalAlignment="Top" Margin="0,2,10,0" />
                             <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                <TextBlock Classes="subtitle" FontSize="13" Text="Allow Roamwise to switch" />
+                                <TextBlock x:Name="SetupTitle" Classes="subtitle" FontSize="13" Text="Allow Roamwise to switch" />
                                 <TextBlock x:Name="SetupText" Classes="caption" Margin="0,2,0,0"
                                            Text="A one-time step that asks for your password. Until then Roamwise only shows what it would do." />
                             </StackPanel>

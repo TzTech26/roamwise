@@ -3,6 +3,8 @@
 
     mock_wifi.py nm            start NetworkManager with one Wi-Fi device on "Office", three access points
     mock_wifi.py nm+wpa        the same plus wpa_supplicant (dBm, beacon data, Roam)
+    mock_wifi.py nm+iwd        NetworkManager on iwd: the connected access point plus one of iwd's per-network
+                               placeholders (00:01:02:..., 2417 MHz); wpa_supplicant runs but manages nothing
 
 Prints READY once everything is registered, then serves until killed.
 """
@@ -14,7 +16,9 @@ import dbus
 import dbusmock
 from dbusmock import DBusTestCase
 
-WITH_WPA = len(sys.argv) > 1 and "wpa" in sys.argv[1]
+MODE = sys.argv[1] if len(sys.argv) > 1 else "nm"
+WITH_WPA = "wpa" in MODE
+WITH_IWD = "iwd" in MODE
 
 # BSSID, frequency (MHz), NetworkManager strength (%), supplicant signal (dBm)
 APS = [
@@ -39,8 +43,11 @@ def stop(*_):
 signal.signal(signal.SIGTERM, stop)
 signal.signal(signal.SIGINT, stop)
 device = nm.AddWiFiDevice("mock_wifi0", "wlan0", 100)
+# Through iwd, NetworkManager sees one access point per network: the real one you're on, placeholders for the rest.
 aps = [nm.AddAccessPoint(device, f"ap{i}", "Office", bssid, 2, freq, 54000, strength, 0x100)
-       for i, (bssid, freq, strength, _) in enumerate(APS)]
+       for i, (bssid, freq, strength, _) in enumerate(APS[:1] if WITH_IWD else APS)]
+if WITH_IWD:
+    nm.AddAccessPoint(device, "ap9", "Cafe", "00:01:02:00:00:01", 2, 2417, 54000, 70, 0x100)
 connection = nm.AddWiFiConnection(device, "Office", "Office", "wpa-psk")
 nm.AddActiveConnection([device], connection, aps[0], "Office", 2)
 device_obj = dbus.SessionBus().get_object("org.freedesktop.NetworkManager", device)
@@ -130,6 +137,17 @@ if WITH_WPA:
         ("SignalPoll", "", "a{sv}", "ret = {'rssi': dbus.Int32(-70, variant_level=1)}"),
         ("Roam", "s", "", roam),
     ])
+
+if WITH_IWD:
+    servers.append(DBusTestCase.spawn_server("net.connman.iwd", "/", "net.connman.iwd", system_bus=False, stdout=sys.stderr))
+    # Started by D-Bus activation (as a GetInterface call does on a real system), knowing no interfaces.
+    wpa_proc = DBusTestCase.spawn_server("fi.w1.wpa_supplicant1", "/fi/w1/wpa_supplicant1",
+                                         "fi.w1.wpa_supplicant1", system_bus=False, stdout=sys.stderr)
+    servers.append(wpa_proc)
+    wpa = dbus.Interface(dbus.SessionBus().get_object("fi.w1.wpa_supplicant1", "/fi/w1/wpa_supplicant1"), dbusmock.MOCK_IFACE)
+    wpa.AddMethod("fi.w1.wpa_supplicant1", "GetInterface", "s", "o",
+                  "raise dbus.exceptions.DBusException('wpa_supplicant knows nothing about this interface.', "
+                  "name='fi.w1.wpa_supplicant1.InterfaceUnknown')")
 
 print("READY", flush=True)
 while True:

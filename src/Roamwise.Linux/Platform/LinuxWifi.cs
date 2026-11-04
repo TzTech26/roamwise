@@ -23,6 +23,20 @@ public sealed class LinuxWifi : IWifiBackend
     private const string WpaPath = "/fi/w1/wpa_supplicant1";
     private const string WpaIface = "fi.w1.wpa_supplicant1.Interface";
     private const string WpaBss = "fi.w1.wpa_supplicant1.BSS";
+    private const string Iwd = "net.connman.iwd";
+
+    private const string IwdProblem = "NetworkManager is using iwd here, not wpa_supplicant";
+
+    /// <summary>
+    /// With NetworkManager on iwd (wifi.backend=iwd), NetworkManager lists one placeholder per network, with a made-up
+    /// BSSID (00:01:02:…) on 2417 MHz, and only the access point you're on is real. iwd lets no other program pick an
+    /// access point, so Roamwise can only watch.
+    /// </summary>
+    private const string IwdUnsupported =
+        "NetworkManager runs Wi-Fi through iwd here, which hides a network's other access points and doesn't let Roamwise pick one. " +
+        "To let Roamwise switch, set NetworkManager back to wpa_supplicant: remove the wifi.backend=iwd line under /etc/NetworkManager, then restart NetworkManager.";
+
+    private static readonly byte[] IwdPlaceholderPrefix = [0x00, 0x01, 0x02];
 
     private const uint DeviceTypeWifi = 2;
     private const uint DeviceStateActivated = 100;
@@ -33,13 +47,66 @@ public sealed class LinuxWifi : IWifiBackend
     private bool _watching;
     private string? _wpaInterface;         // supplicant object for the adapter, when we're allowed to use it
     private string? _wpaProblem;
+    private bool _iwd;                     // NetworkManager drives the adapter through iwd
     private string _watched = "";
     private string _nmVersion = "unknown";
 
     public event Action? ConnectionChanged;
 
     public bool CanSwitch => _wpaInterface is not null;
+    public string? Unsupported => _iwd && _wpaInterface is null ? IwdUnsupported : null;
     public bool SupportsLowLatency => false;
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool?> _6ghz = new();
+
+    /// <summary>Asked once per adapter; a radio's bands don't change while Roamwise runs.</summary>
+    public bool? Supports6Ghz(WifiAdapter adapter) => _6ghz.GetOrAdd(adapter.Name, PhySupports6Ghz);
+
+    /// <summary>
+    /// From "iw phy &lt;phy&gt; info": true when any 6 GHz channel (5925–7125 MHz) isn't disabled, false when the radio lists
+    /// channels but none of them, null when iw isn't installed or lists nothing.
+    /// </summary>
+    private static bool? PhySupports6Ghz(string ifname)
+    {
+        string phy;
+        try { phy = File.ReadAllText($"/sys/class/net/{ifname}/phy80211/name").Trim(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+
+        // iw lives in /usr/sbin, which isn't on every user's PATH.
+        foreach (string iw in new[] { "iw", "/usr/sbin/iw", "/sbin/iw" })
+        {
+            string output;
+            try
+            {
+                using var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(iw, ["phy", phy, "info"])
+                {
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                })!;
+                var read = p.StandardOutput.ReadToEndAsync();
+                if (!p.WaitForExit(5000))
+                {
+                    try { p.Kill(); } catch (InvalidOperationException) { }
+                    return null;
+                }
+                if (p.ExitCode != 0) return null;
+                output = read.Result;
+            }
+            catch (System.ComponentModel.Win32Exception) { continue; } // not found here
+            catch (InvalidOperationException) { return null; }
+
+            bool any = false;
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(output, @"^\s*\*\s+(\d+)(?:\.\d+)?\s+MHz.*$", System.Text.RegularExpressions.RegexOptions.Multiline))
+            {
+                any = true;
+                int mhz = int.Parse(m.Groups[1].Value);
+                if (mhz is >= 5925 and <= 7125 && !m.Value.Contains("disabled")) return true;
+            }
+            return any ? false : null;
+        }
+        return null;
+    }
 
     /// <summary>Why switching isn't available, for diagnostics ("access denied", "not running"...).</summary>
     public string? SwitchProblem => _wpaProblem;
@@ -127,22 +194,44 @@ public sealed class LinuxWifi : IWifiBackend
 
     private async Task FindSupplicantAsync(Bus bus, string ifname)
     {
+        bool iwd = await HasOwnerAsync(bus, Iwd);
+        // Calling wpa_supplicant would start it through D-Bus activation, next to iwd, managing nothing.
+        if (iwd && !await HasOwnerAsync(bus, Wpa))
+        {
+            _wpaInterface = null;
+            _wpaProblem = IwdProblem;
+            _iwd = true;
+            return;
+        }
         try
         {
             _wpaInterface = await bus.CallAsync(Wpa, WpaPath, Wpa, "GetInterface", "s",
                 (ref MessageWriter w) => w.WriteString(ifname), static (m, _) => m.GetBodyReader().ReadObjectPathAsString());
             _wpaProblem = null;
+            _iwd = false;
         }
         catch (DBusException ex)
         {
             _wpaInterface = null;
-            _wpaProblem = ex.ErrorName switch
+            _iwd = iwd;
+            _wpaProblem = iwd ? $"{IwdProblem} (wpa_supplicant: {ex.ErrorMessage})" : ex.ErrorName switch
             {
                 "org.freedesktop.DBus.Error.AccessDenied" => "access denied (one-time setup not done)",
-                "org.freedesktop.DBus.Error.ServiceUnknown" or "org.freedesktop.DBus.Error.NameHasNoOwner" => "wpa_supplicant isn't on D-Bus (iwd or another Wi-Fi daemon in use?)",
+                "org.freedesktop.DBus.Error.ServiceUnknown" or "org.freedesktop.DBus.Error.NameHasNoOwner" => "wpa_supplicant isn't on D-Bus (another Wi-Fi daemon in use?)",
+                "fi.w1.wpa_supplicant1.InterfaceUnknown" => $"wpa_supplicant is running but doesn't manage {ifname} (another Wi-Fi daemon in use?)",
                 _ => $"{ex.ErrorName}: {ex.ErrorMessage}",
             };
         }
+    }
+
+    private static async Task<bool> HasOwnerAsync(Bus bus, string name)
+    {
+        try
+        {
+            return await bus.CallAsync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "NameHasOwner", "s",
+                (ref MessageWriter w) => w.WriteString(name), static (m, _) => m.GetBodyReader().ReadBool());
+        }
+        catch (DBusException) { return false; }
     }
 
     private async Task EnsureWifiOnAsync(Bus bus)
@@ -205,7 +294,7 @@ public sealed class LinuxWifi : IWifiBackend
                 DebugLog.Unexpected(ex);
             }
         }
-        try { return await NetworkManagerAccessPointsAsync(bus, adapter); }
+        try { return await NetworkManagerAccessPointsAsync(bus, adapter, _iwd); }
         catch (DBusException ex) { throw NmMissing(ex); }
     }
 
@@ -280,7 +369,7 @@ public sealed class LinuxWifi : IWifiBackend
     }
 
     /// <summary>What any user can read: signal as a percentage, frequency, and channel width on NetworkManager 1.46+.</summary>
-    private static async Task<IReadOnlyList<AccessPoint>> NetworkManagerAccessPointsAsync(Bus bus, WifiAdapter adapter)
+    private static async Task<IReadOnlyList<AccessPoint>> NetworkManagerAccessPointsAsync(Bus bus, WifiAdapter adapter, bool iwd)
     {
         var paths = await bus.CallAsync(Nm, adapter.Id, NmWireless, "GetAllAccessPoints", null, null,
             static (m, _) => m.GetBodyReader().ReadArrayOfObjectPath());
@@ -292,6 +381,8 @@ public sealed class LinuxWifi : IWifiBackend
             catch (DBusException) { continue; }
             if (Mac.Parse(p.Str("HwAddress")) is not { } bssid) continue;
             int mhz = (int)p.Num("Frequency");
+            // iwd's per-network placeholders: the 2417 MHz is made up, and would count as crowding on channel 2.
+            if (iwd && bssid.AsSpan().StartsWith(IwdPlaceholderPrefix)) mhz = 0;
             var (band, channel) = InfoElements.FromFrequency(mhz);
             int strength = (int)p.Num("Strength");
             int width = (int)p.Num("Bandwidth", 0);
@@ -506,6 +597,7 @@ public sealed class LinuxWifi : IWifiBackend
             $"NetworkManager {_nmVersion}",
             $"Desktop: {Environment.GetEnvironmentVariable("XDG_CURRENT_DESKTOP")} on {Environment.GetEnvironmentVariable("XDG_SESSION_TYPE")}",
             $"wpa_supplicant: {(_wpaInterface is not null ? $"available ({_wpaInterface})" : _wpaProblem ?? "not checked yet")}",
+            $"iwd: {(_iwd ? "in use" : "not in use")}",
         ];
 
     private static string DecodeSsid(byte[] bytes) => Encoding.UTF8.GetString(bytes, 0, Math.Min(bytes.Length, 32));

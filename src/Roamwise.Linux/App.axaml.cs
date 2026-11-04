@@ -121,12 +121,14 @@ public partial class App : Application
     private async Task<string?> AllowSwitchingAsync()
     {
         if (_wifi is null) return "Not available in the demo.";
+        // No permission makes iwd hand over switching; don't ask for a password for nothing.
+        if (await _wifi.CheckSwitchingAsync() is not null && _wifi.Unsupported is string unsupported) return unsupported;
         string? problem = await SwitchPermission.GrantAsync();
         if (problem is null)
         {
             await _wifi.ReconnectAsync();
             if (await _wifi.CheckSwitchingAsync() is string refused)
-                problem = $"The permission is in place, but wpa_supplicant still refused ({refused}). Quit and reopen Roamwise; if this stays, send a diagnostics report from Settings › About.";
+                problem = _wifi.Unsupported ?? $"The permission is in place, but wpa_supplicant still refused ({refused}). Quit and reopen Roamwise; if this stays, send a diagnostics report from Settings › About.";
         }
         _log.Add(problem is null ? ActivityKind.Info : ActivityKind.Problem,
             problem is null ? "Allowed Roamwise to switch access points." : $"Couldn't allow switching: {problem}");

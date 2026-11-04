@@ -27,6 +27,7 @@ public partial class FlyoutWindow : Window
     private EngineSnapshot _snap = new();
     private Action? _emptyAction;
     private bool _keepOpen; // while the password prompt has focus
+    private string? _unsupportedShown;
 
     /// <summary>When the panel last closed by losing focus; used to ignore the tray click that caused it.</summary>
     public DateTime LastHidden { get; private set; }
@@ -137,6 +138,7 @@ public partial class FlyoutWindow : Window
         EmptyPanel.IsVisible = !connected;
         CheckButton.IsEnabled = !s.IsRoaming;
         SetupBanner.IsVisible = !s.CanSwitch && s.State is EngineState.Connected or EngineState.Disconnected;
+        RenderSetup(s.Unsupported);
 
         if (connected)
         {
@@ -351,6 +353,17 @@ public partial class FlyoutWindow : Window
     }
 
     private void EmptyAction_Click(object? sender, RoutedEventArgs e) => _emptyAction?.Invoke();
+
+    /// <summary>The setup banner, or in its place why switching can't work on this system (no button: nothing to allow).</summary>
+    private void RenderSetup(string? unsupported)
+    {
+        if (unsupported == _unsupportedShown) return;
+        _unsupportedShown = unsupported;
+        SetupTitle.Text = unsupported is null ? "Allow Roamwise to switch" : "Roamwise can't switch on this system";
+        SetupText.Text = unsupported ?? "A one-time step that asks for your password. Until then Roamwise only shows what it would do.";
+        SetupText.Foreground = Res.Brush("Rw.TextMuted");
+        SetupButton.IsVisible = unsupported is null;
+    }
 
     private async void Setup_Click(object? sender, RoutedEventArgs e)
     {

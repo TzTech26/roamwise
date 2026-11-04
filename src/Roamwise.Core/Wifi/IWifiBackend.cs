@@ -21,8 +21,17 @@ public interface IWifiBackend : IDisposable
     /// <summary>False when the system lets Roamwise read access points but not switch between them.</summary>
     bool CanSwitch { get; }
 
+    /// <summary>
+    /// Why this system hides a network's access points from Roamwise or won't let it pick one, when no step
+    /// in Roamwise can change that (Linux with NetworkManager on iwd). Null otherwise.
+    /// </summary>
+    string? Unsupported => null;
+
     /// <summary>Whether <see cref="SetLowLatency"/> does anything on this system.</summary>
     bool SupportsLowLatency { get; }
+
+    /// <summary>Whether the adapter can use 6 GHz at all; null when the system doesn't say.</summary>
+    bool? Supports6Ghz(WifiAdapter adapter) => null;
 
     Task<IReadOnlyList<WifiAdapter>> GetAdaptersAsync(CancellationToken ct);
 

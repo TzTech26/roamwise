@@ -461,6 +461,15 @@ public partial class SettingsWindow : Window
     {
         bool can = _engine.Snapshot.CanSwitch;
         bool installed = OperatingSystem.IsLinux() && SwitchPermission.Installed;
+        if (!can && _engine.Snapshot.Unsupported is string unsupported)
+        {
+            PermissionRow.Header = "Roamwise can't switch access points on this system";
+            PermissionRow.Description = status ?? unsupported;
+            // Leave a way to undo an earlier setup; there's nothing to allow.
+            PermissionButton.Content = "Remove";
+            PermissionButton.IsVisible = installed;
+            return;
+        }
         PermissionRow.Header = can ? "Roamwise can switch access points" : "Allow Roamwise to switch access points";
         PermissionRow.Description = status ?? (can
             ? installed
@@ -475,7 +484,8 @@ public partial class SettingsWindow : Window
     private async void Permission_Click(object? sender, RoutedEventArgs e)
     {
         PermissionButton.IsEnabled = false;
-        string? problem = _engine.Snapshot.CanSwitch ? await _revokeSwitching() : await _allowSwitching();
+        var snap = _engine.Snapshot;
+        string? problem = snap.CanSwitch || snap.Unsupported is not null ? await _revokeSwitching() : await _allowSwitching();
         PermissionButton.IsEnabled = true;
         _engine.CheckNow();
         RenderPermission(problem);

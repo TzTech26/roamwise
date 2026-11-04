@@ -282,6 +282,11 @@ public sealed class WlanClient : IWifiBackend
 
     private static Guid Id(WifiAdapter a) => Guid.Parse(a.Id);
 
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool?> _6ghz = new();
+
+    /// <summary>Asked once per adapter; a driver's bands don't change while Roamwise runs.</summary>
+    public bool? Supports6Ghz(WifiAdapter adapter) => _6ghz.GetOrAdd(adapter.Id, _ => DriverBands.Supports6Ghz(Id(adapter)));
+
     public Task<IReadOnlyList<WifiAdapter>> GetAdaptersAsync(CancellationToken ct) => Task.FromResult(GetAdapters());
 
     public Task ScanAsync(WifiAdapter adapter, TimeSpan timeout, CancellationToken ct) => ScanAsync(Id(adapter), timeout, ct);
