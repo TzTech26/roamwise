@@ -103,7 +103,7 @@ Settings, the activity history and controller credentials stay on your computer,
 
 ## Releasing
 
-Windows releases are code-signed through Azure Artifact Signing; [docs/signing.md](docs/signing.md) has the one-time setup.
+Windows releases are code-signed through SignPath once it is set up; [docs/signing.md](docs/signing.md) has the one-time setup. Until then they go out unsigned.
 
 Push a tag like `v1.2.0`. The workflow builds Windows and Linux for x64 and ARM64, stamps the version from the tag, tests the Linux Wi-Fi code against mock NetworkManager and wpa_supplicant services, and publishes a release with the zips, the AppImages and `SHA256SUMS.txt`. Running copies pick it up within a day.
 
